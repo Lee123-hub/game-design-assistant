@@ -1,6 +1,6 @@
 # 游戏设计助手（Game Design Assistant）
 
-本地运行的 AI 游戏设计工作台：接入 LLM（默认 DeepSeek，支持自定义 OpenAI 兼容端点），由 7 类专职 agent 按 SOP 引导你从一句想法走到一套可开发的策划文档包 + 可玩的 HTML 原型。
+本地运行的 AI 游戏设计工作台：接入 LLM（默认 DeepSeek，支持自定义任意 Anthropic 协议兼容端点），由 7 类专职 agent 按 SOP 引导你从一句想法走到一套可开发的策划文档包 + 可玩的 HTML 原型。
 
 ## 功能特性
 
@@ -11,7 +11,7 @@
 - **交付包**：一致性检查 → GDD → 索引，输出到 `deliverables/`
 - **实时流式 UI**：token 级流式输出（按输出段分块展示）、思考/工具调用活动指示、断线重连自动恢复快照
 - **每 agent 可配置**：模型、系统提示词、可用工具集、外挂 skill zip 包、maxTurns 均可在设置中按 agent 调整；默认禁用 Agent 工具
-- **供应商可切换**：DeepSeek（预设）或自定义 baseUrl + 模型的 OpenAI 兼容端点
+- **供应商可切换**：DeepSeek（预设，走 Anthropic 兼容层）或自定义 baseUrl + 模型——仅支持 **Anthropic Messages 协议**兼容端点（如 DeepSeek 的 `/anthropic` 接入点），不支持 OpenAI 协议
 
 ## 技术栈
 
