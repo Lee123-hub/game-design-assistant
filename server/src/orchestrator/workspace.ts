@@ -1,0 +1,258 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import type { AgentDef, Project, StepDef } from '@gda/shared';
+import {
+  artifactLocation,
+  listDeliverables,
+  listStepFiles,
+} from '../store/artifactStore.js';
+import { versionStamp } from '../store/artifactStore.js';
+import { projectDir } from '../store/paths.js';
+
+export { projectDir };
+
+/** 所有 agent 共用的 cwd = 项目数据目录；CLAUDE.md 放在其根下 */
+export const CLAUDE_MD_NAME = 'CLAUDE.md';
+
+/**
+ * 程序侧意图判断：用户消息更像「提问/咨询」还是「生成/修改指令」。
+ * generative 步骤中判断为提问时走回答模式（不给写文件工具），
+ * 避免模型把问题误当成生成指令（提示词框架偏生成，模型侧 [Q&A] 判断不可靠）。
+ */
+const QUESTION_PATTERNS = /[？?]|什么|哪些|哪个|怎么|怎样|为什么|如何|能不能|可不可以|有没有|是不是|看看|看一下|查看|列出|介绍|说明一下/;
+const TASK_PATTERNS = /重新生成|重写|重新做|修改|调整|优化|加上|添加|加入|删掉|删除|去掉|改成|换成|扩写|简化|做一版|生成|制作/;
+
+export function looksLikeQuestion(text: string): boolean {
+  const s = (text ?? '').trim();
+  if (!s || s.length > 300) return false;
+  if (TASK_PATTERNS.test(s)) return false;
+  return QUESTION_PATTERNS.test(s);
+}
+
+/** 问答模式标记：回复以此开头表示本次只是回答用户提问，不产出/不覆盖产物 */
+export const ANSWER_MARK = '[Q&A]';
+
+export function claudeMdPath(projectId: string): string {
+  return path.join(projectDir(projectId), CLAUDE_MD_NAME);
+}
+
+/** 回答模式指令：提问场景下不给写文件工具，模型只做解答 */
+export const ANSWER_MODE_INSTRUCTION = `## 回答模式（本次运行）
+
+用户在本步骤对话中提出的是**问题/咨询**，不是生成任务。本次你只需要：
+
+1. 直接、简明地回答用户的问题；需要时可先用 Read/Glob 查看工作区文件核实现状，再依据看到的内容回答。
+2. **禁止**生成本步骤的产物，**禁止**输出任何完整文档或代码全文。
+3. 你的回复就是给用户看的答案本身。`;
+
+/** CLAUDE.md 引导模板：结构说明固定，文件清单由各 agent 每次运行校对维护 */
+const CLAUDE_MD_TEMPLATE = `# 项目文档说明
+
+> 本文件由所有 agent 共同维护：各 agent 以程序提供的扫描基线为准，发现文件清单过时（缺失/新增/变更）时更新本文件。
+
+## 目录结构（固定）
+
+- \`project.json\` — 项目元数据：名称、一句话想法、各 step 状态、玩家画像（personas）、竞品资料（competitorNotes）。由程序管理，不要修改。
+- \`steps/<agentId>/<stepId>.<YYYYMMDD-HHMMSS-iii>.md\` — 各步骤产物版本文件，命名 = 名称+时间戳；**按创建时间倒序，最新一个即当前版本**，下游 step 的参考依据。
+- \`steps/<agentId>/<stepId>.md\` — 早期遗留的无时间戳版本（存在时同样参与按时间排序）。
+- \`prototypes/<stepId>.<YYYYMMDD-HHMMSS-iii>.html\` — HTML 可玩原型版本文件，命名规则同上。
+- \`deliverables/\` — 最终交付文档（assemble 阶段产出）。
+- \`runs/<runId>.jsonl\` — 每次运行的原始日志，由程序管理，禁止读写。
+- \`sessions/<agentId>__<stepId>.json\` — 每个步骤的访谈会话记录，由程序管理，禁止读写。
+- \`CLAUDE.md\` — 本文件。
+
+## 当前文件清单
+
+（由 agent 扫描后维护：逐个列出实际存在的文件及其含义；下方「程序扫描基线」可用于校对。）
+
+（待补充）
+`;
+
+export async function ensureClaudeMd(projectId: string): Promise<void> {
+  const file = claudeMdPath(projectId);
+  try {
+    await fs.access(file);
+  } catch {
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, CLAUDE_MD_TEMPLATE, 'utf8');
+  }
+}
+
+/** 全量工具集：所有 agent 一律放开（用户配置），不再按 step 的 useWebSearch 门控 */
+export const WORKSPACE_ALL_TOOLS = [
+  'Read',
+  'Glob',
+  'Grep',
+  'Write',
+  'Edit',
+  'WebSearch',
+  'WebFetch',
+  'NotebookEdit',
+  'TodoWrite',
+  'Agent',
+  'Bash',
+];
+
+/** 默认工具集：全量去掉 Agent 工具（用户要求：每个 agent 默认不可使用 agent 工具） */
+export const DEFAULT_AGENT_TOOLS = WORKSPACE_ALL_TOOLS.filter((t) => t !== 'Agent');
+
+/** 项目内允许 agent 使用的工具集：agent 覆盖配置优先，未配置则用默认（不含 Agent） */
+export function workspaceToolSet(def: StepDef, override?: { allowedTools?: string[] }): string[] {
+  void def;
+  const custom = override?.allowedTools;
+  if (custom && custom.length > 0) {
+    const known = new Set<string>(WORKSPACE_ALL_TOOLS);
+    const filtered = custom.filter((t) => known.has(t));
+    if (filtered.length > 0) return filtered;
+  }
+  return DEFAULT_AGENT_TOOLS;
+}
+
+/**
+ * 本轮运行的轮数上限：
+ * - agent 覆盖配置的 maxTurns 优先（用户在设置里配置）
+ * - 默认 = step 基础轮数 + 工具余量（抽读上下文 + 写文件）；html 原型额外 +10
+ *   （实测 html 步骤 Read 旧版 + ls + date + Write + node 校验 + 多次 Edit 修正，
+ *   9 轮会被 max_turns 截断）
+ */
+export function workspaceMaxTurns(def: StepDef, override?: { maxTurns?: number }): number {
+  const custom = override?.maxTurns;
+  if (custom && Number.isFinite(custom) && custom >= 1) return Math.floor(custom);
+  const bonus = def.outputKind === 'html' ? 6 + 10 : 6;
+  return def.maxTurns + bonus;
+}
+
+/** 每次运行注入 system prompt 的工作区约定（所有 agent 一致，轻量模式） */
+export const WORKSPACE_PREAMBLE = `## 工作区约定
+
+本次运行的工作目录（cwd）是本项目唯一的文档目录，所有 agent 共用。程序已在下方提供「程序扫描基线」文件清单，遵循：
+
+1. **以程序基线为准**：基线里列出的主文件路径即各步骤的**最新版本**，无需自行 Glob 全量扫描；文件名中带时间戳后缀的是历史版本归档，不要读取。project.json 可读（取 personas / competitorNotes / step 状态），但禁止修改。
+2. **按需抽读**：只 Read 与当前任务直接相关的主文件（上游产物等），不必通读全部文档；runs/ 与 sessions/ 由程序管理，禁止读写。
+3. **CLAUDE.md 轻量维护**：仅当发现基线与实际不符（文件缺失、新增、已过时）时，用 Edit 更新 CLAUDE.md 的「当前文件清单」；一致则不要动。只允许写入本工作区内（cwd）的文件，工作区外的路径一律禁止。
+4. **区分产出与问答**：
+   - 执行步骤任务（生成/修改产物）→ 按「产物写入要求」用 Write 工具把产物全文写入指定路径的版本文件，聊天回复只写一句完成说明，不要在回复中重复产物全文。
+   - 用户消息是**询问/咨询**（如"你能看到哪些文档""上一步产出了什么"）→ 不写产物文件，直接在回复中简明回答，并在回复开头加 \`[Q&A]\`（程序会把它作为对话消息保存，不影响产物）。`;
+
+function pad(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function formatTs(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * 程序侧扫描生成的文档清单（含每个文件含义与最新版时间），
+ * 作为 agent 自行扫描/更新 CLAUDE.md 的基线注入本次运行上下文。
+ */
+export async function buildDocManifest(
+  project: Project,
+  registry: AgentDef[],
+): Promise<string> {
+  const lines: string[] = [];
+  for (const agent of registry) {
+    for (const def of agent.steps) {
+      const stepKey = `${agent.agentId}:${def.stepId}`;
+      const record = project.steps[stepKey];
+      const state = record?.state ?? 'pending';
+      const loc = artifactLocation(project.id, stepKey, def.outputKind);
+      const rel =
+        def.outputKind === 'html'
+          ? `prototypes/${def.stepId}.<时间戳>.html`
+          : `steps/${agent.agentId}/${def.stepId}.<时间戳>.md`;
+      const files = await listStepFiles(project.id, stepKey, def.outputKind);
+      if (files.length > 0) {
+        const latest = files[0];
+        const archives = files.length - 1;
+        lines.push(
+          `- \`${path.join(path.basename(loc.dir), latest.name)}\` — ${def.title}｜状态 ${state}｜最新版 ${formatTs(latest.updatedAt)}${
+            archives > 0 ? `｜历史版本 ${archives} 个（\`${path.basename(loc.dir)}/${def.stepId}.*${loc.ext}\`）` : ''
+          }`,
+        );
+      } else {
+        lines.push(`- \`${rel}\` — ${def.title}｜状态 ${state}｜尚未生成`);
+      }
+    }
+  }
+  const dels = await listDeliverables(project.id);
+  if (dels.length > 0) {
+    lines.push(
+      ...dels.map((d) => `- \`deliverables/${d}\` — 最终交付文档`),
+    );
+  }
+  const notes = (project as unknown as { competitorNotes?: unknown[] }).competitorNotes?.length ?? 0;
+  const personas = project.personas?.length ?? 0;
+  if (notes > 0) lines.push(`- \`project.json#competitorNotes\` — 竞品资料 ${notes} 条（存在 project.json 内）`);
+  if (personas > 0) lines.push(`- \`project.json#personas\` — 玩家画像 ${personas} 个（存在 project.json 内）`);
+  return lines.join('\n');
+}
+
+/** generative 步骤的产物写入要求：用 Write 工具把产物写到指定目录，文件名=名称+时间戳 */
+export function artifactWriteInstruction(def: StepDef): string {
+  const now = versionStamp();
+  if (def.outputKind === 'html') {
+    return [
+      '## 产物写入要求（必须执行）',
+      '',
+      `本步骤的最终产物是 HTML 可玩原型，必须用 Write 工具写入：`,
+      '',
+      `- 目录：\`prototypes/\`（项目工作区内）`,
+      `- 文件名规范：\`${def.stepId}.<YYYYMMDD-HHMMSS-iii>.html\`（名称+写入时刻的时间戳；程序按创建时间倒序取最新一个为当前版本）`,
+      `- 当前本地时间供参考：\`${now}\` → 本次文件名建议 \`${def.stepId}.${now}.html\`（以实际写入时刻为准）`,
+      '',
+      '要求：完整的 `<!DOCTYPE html> … </html>` 单文件页面；产物全文写进文件，聊天回复里只写一句完成说明（不要重复产物代码）。',
+    ].join('\n');
+  }
+  return [
+    '## 产物写入要求（必须执行）',
+    '',
+    '本步骤的最终产物必须用 Write 工具写入：',
+    '',
+    `- 目录：\`steps/${def.agentId}/\`（项目工作区内）`,
+    `- 文件名规范：\`${def.stepId}.<YYYYMMDD-HHMMSS-iii>.md\`（名称+写入时刻的时间戳；程序按创建时间倒序取最新一个为当前版本）`,
+    `- 当前本地时间供参考：\`${now}\` → 本次文件名建议 \`${def.stepId}.${now}.md\`（以实际写入时刻为准）`,
+    '',
+    '要求：产物全文写进文件，聊天回复里只写一句完成说明（不要重复产物全文）。',
+  ].join('\n');
+}
+
+/**
+ * 组装本次运行的工作区简报：cwd 说明 + 程序扫描基线 + CLAUDE.md 当前内容 +（generative）产物写入要求。
+ * 注入到 prompt（generative）或首条消息（conversational）中。
+ */
+export async function buildWorkspaceBrief(
+  project: Project,
+  registry: AgentDef[],
+  def?: StepDef,
+): Promise<string> {
+  await ensureClaudeMd(project.id);
+  const manifest = await buildDocManifest(project, registry);
+  let claudeMd = '';
+  try {
+    claudeMd = await fs.readFile(claudeMdPath(project.id), 'utf8');
+  } catch {
+    // ensureClaudeMd 刚写过，理论上不会走到
+  }
+  const cwd = projectDir(project.id);
+  const sections = [
+    '## 工作区（cwd）',
+    '',
+    `本次运行工作目录（cwd）：\`${cwd}\`，所有 agent 共用。`,
+    '',
+    '### 程序扫描基线（当前文件清单，供校对 CLAUDE.md 用）',
+    '',
+    manifest || '（目录下暂无产物文件）',
+    '',
+    '### CLAUDE.md 当前内容',
+    '',
+    '```markdown',
+    claudeMd,
+    '```',
+  ];
+  if (def && def.mode === 'generative') {
+    sections.push('---', '', artifactWriteInstruction(def));
+  }
+  return sections.join('\n');
+}

@@ -1,0 +1,27 @@
+{
+  "name": "game-design-assistant",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "packages/shared",
+    "server",
+    "web"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm:dev -w server\" \"npm:dev -w web\"",
+    "build": "npm run build -w web",
+    "start": "npm run start -w server",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
+    "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "adm-zip": "^0.6.0"
+  }
+}
