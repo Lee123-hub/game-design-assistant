@@ -1,5 +1,10 @@
 import type { AgentDef, Project, StepDef } from '@gda/shared';
-import { latestArtifactFile, readArtifactAt, artifactUpdatedAt } from '../store/artifactStore.js';
+import {
+  latestArtifactFile,
+  latestVersionGroup,
+  readArtifactAt,
+  artifactUpdatedAt,
+} from '../store/artifactStore.js';
 import { fileExists } from '../util/fs.js';
 
 const PER_BLOCK_LIMIT = 12_000;
@@ -43,6 +48,23 @@ export async function buildContextBlocks(
       .find((a) => a.agentId === depAgentId)
       ?.steps.find((s) => s.stepId === depStepId);
     if (!def) continue;
+
+    // csv 步骤的产物是一组文件（多张 csv + 说明 md）：注入同一轮写出的整组文件
+    if (def.outputKind === 'csv') {
+      const group = await latestVersionGroup(project.id, depKey, def.outputKind);
+      if (group.length === 0) continue;
+      const parts: string[] = [];
+      for (const file of group) {
+        const name = file.split('/').pop() ?? file;
+        const raw = (await readArtifactAt(file)) ?? '';
+        parts.push(`#### ${name}\n\n${truncate(raw, PER_BLOCK_LIMIT)}`);
+      }
+      blocks.push({
+        label: `${def.title}（${depKey}，共 ${group.length} 个文件）`,
+        content: parts.join('\n\n'),
+      });
+      continue;
+    }
 
     // 下游参考上游产物的「当前版本」= 最新一个版本文件
     const file = await latestArtifactFile(project.id, depKey, def.outputKind);

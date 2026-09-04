@@ -6,6 +6,7 @@ import { FIELD_SENTINEL, setStepState } from '../../orchestrator/runner.js';
 import {
   listStepFiles,
   readStepFile,
+  saveStepFile,
   deleteStepFile,
 } from '../../store/artifactStore.js';
 import { buildRegistry, findStepDef } from '../../registry/index.js';
@@ -121,6 +122,32 @@ export function stepsRouter(): Router {
       return;
     }
     res.json({ content: file.content, outputKind: ctx.def.outputKind, updatedAt: file.updatedAt });
+  });
+
+  // 原地保存对某版本文件的编辑（csv 表格编辑器用）
+  router.put('/api/projects/:id/steps/:agentId/:stepId/files/:name', async (req, res) => {
+    const ctx = await resolve(req, res);
+    if (!ctx) return;
+    const parsed = z
+      .object({ content: z.string().max(2_000_000) })
+      .safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: { code: 'invalid_body', message: parsed.error.message } });
+      return;
+    }
+    const stepKey = `${ctx.def.agentId}:${ctx.def.stepId}`;
+    try {
+      const { updatedAt } = await saveStepFile(
+        ctx.project.id,
+        stepKey,
+        ctx.def.outputKind,
+        req.params.name,
+        parsed.data.content,
+      );
+      res.json({ ok: true, updatedAt });
+    } catch (err) {
+      res.status(404).json({ error: { code: 'not_found', message: err instanceof Error ? err.message : String(err) } });
+    }
   });
 
   // 删除指定版本文件；删除最新版时自动提升剩余最新文件为主文件

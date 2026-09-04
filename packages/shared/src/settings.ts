@@ -1,5 +1,3 @@
-import type { AgentId } from './step.js';
-
 export const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/anthropic';
 export const DEEPSEEK_MODELS = [
   'deepseek-chat',
@@ -55,7 +53,8 @@ export interface Settings {
   baseUrl: string;
   defaultModel: string; // deepseek 时为 DEEPSEEK_MODELS 之一，custom 时自由输入
   maxConcurrentRuns: number; // 默认 3
-  agentOverrides: Partial<Record<AgentId, AgentOverride>>;
+  /** 按 stepKey（"agentId:stepId"）粒度的步骤覆盖；玩家画像 step 不开放单独配置 */
+  agentOverrides: Record<string, AgentOverride>;
 }
 
 /** GET /api/settings 返回的脱敏视图 */

@@ -1,5 +1,6 @@
 import {
   PROMPT_FILES,
+  DEFAULT_AGENT_TOOLS,
   type AgentDef,
   type AgentId,
   type PlayerPersona,
@@ -8,18 +9,18 @@ import {
 } from '@gda/shared';
 
 const GUIDE_PRESET_QUERIES: Record<string, string[]> = {
-  concept: ['开始访谈，逐项提问', '我补充一些背景：……（发送前修改）'],
-  'competitors-focus': ['开始访谈，逐项提问', '我最想对标的竞品：……（发送前修改）'],
-  'target-users': ['开始访谈，逐项提问', '我的目标用户是：……（发送前修改）'],
-  'core-loop': ['开始访谈，逐项提问', '我心目中的核心循环：……（发送前修改）'],
-  'business-model': ['开始访谈，逐项提问', '商业化初步考虑：……（发送前修改）'],
+  concept: ['开始访谈，逐项提问'],
+  'competitors-focus': ['开始访谈并联网调研竞品'],
+  'target-users': ['开始访谈，逐项提问'],
+  'core-loop': ['开始访谈，逐项提问'],
+  'business-model': ['开始访谈，逐项提问'],
 };
 
 // 访谈步骤的上下文注入：不改变解锁顺序，只把已完成的上游产物带给模型
 const GUIDE_CONTEXT_DEPS: Record<string, StepKey[]> = {
   concept: [],
   'competitors-focus': ['guide:concept'],
-  'target-users': ['guide:concept'],
+  'target-users': ['guide:concept', 'guide:competitors-focus'],
   'core-loop': ['guide:concept'],
   'business-model': ['guide:concept', 'guide:core-loop'],
 };
@@ -27,7 +28,8 @@ const GUIDE_CONTEXT_DEPS: Record<string, StepKey[]> = {
 const GUIDE_CONVERSATIONAL: StepDef[] = (
   [
     ['concept', '一句话概念与类型平台'],
-    ['competitors-focus', '竞品关注点'],
+    // 竞品分析已融合进本节点：访谈关注点 + 联网调研 + 产出分析报告
+    ['competitors-focus', '竞品调研与分析'],
     ['target-users', '目标用户画像'],
     ['core-loop', '核心循环草图'],
     ['business-model', '商业模式'],
@@ -43,7 +45,7 @@ const GUIDE_CONVERSATIONAL: StepDef[] = (
   promptFile: PROMPT_FILES.guideConversational,
   presetQueries: GUIDE_PRESET_QUERIES[stepId] ?? ['开始访谈，逐项提问'],
   contextDeps: GUIDE_CONTEXT_DEPS[stepId] ?? [],
-  // 竞品访谈需要现场联网调研：竞品不预设，全部靠搜索和用户提供
+  // 竞品调研需要现场联网调研：竞品不预设，全部靠搜索和用户提供
   ...(stepId === 'competitors-focus' ? { useWebSearch: true } : {}),
 }));
 
@@ -69,23 +71,6 @@ const GUIDE_ONE_PAGER: StepDef = {
   ],
 };
 
-const COMPETITOR_ANALYSIS: StepDef = {
-  agentId: 'competitor',
-  stepId: 'analysis',
-  title: '竞品分析报告',
-  mode: 'generative',
-  outputKind: 'markdown',
-  dependsOn: ['guide:competitors-focus'],
-  useWebSearch: true,
-  maxTurns: 6,
-  promptFile: PROMPT_FILES.competitorAnalysis,
-  presetQueries: [
-    '联网调研竞品并生成分析报告',
-    '重点分析机制差异与我们的差异化机会',
-    '重点分析商业化设计差异与定价参考',
-  ],
-};
-
 const PROTOTYPE_HTML: StepDef = {
   agentId: 'prototype',
   stepId: 'html',
@@ -103,6 +88,43 @@ const PROTOTYPE_HTML: StepDef = {
   ],
 };
 
+/** 详细设计·模块设计默认开启 Agent 工具：要求派子 agent 做逻辑闭环与可读性检查 */
+const DESIGN_MODULE_TOOLS = [...DEFAULT_AGENT_TOOLS, 'Agent'];
+
+const DESIGN_STEPS: StepDef[] = [
+  {
+    agentId: 'design',
+    stepId: 'module-design',
+    title: '模块详细设计',
+    mode: 'generative',
+    outputKind: 'markdown',
+    dependsOn: ['guide:one-pager', 'guide:core-loop', 'prototype:html'],
+    maxTurns: 4,
+    defaultTools: DESIGN_MODULE_TOOLS,
+    promptFile: PROMPT_FILES.designModule,
+    presetQueries: [
+      '生成模块详细设计文档',
+      '补充音频/音效与表现层细节',
+      '对关键模块做一轮子 agent 逻辑闭环复查',
+    ],
+  },
+  {
+    agentId: 'design',
+    stepId: 'config-tables',
+    title: '属性与数值配置表（CSV）',
+    mode: 'generative',
+    outputKind: 'csv',
+    dependsOn: ['design:module-design'],
+    maxTurns: 4,
+    promptFile: PROMPT_FILES.designConfigTables,
+    presetQueries: [
+      '根据详细设计产出 CSV 配置表',
+      '增加一张成长/关卡配置表',
+      '给现有表格补充一列并更新说明',
+    ],
+  },
+];
+
 const NUMERIC_STEPS: StepDef[] = [
   {
     agentId: 'numeric',
@@ -110,11 +132,11 @@ const NUMERIC_STEPS: StepDef[] = [
     title: '经济系统数值模型',
     mode: 'generative',
     outputKind: 'markdown',
-    dependsOn: ['guide:one-pager'],
+    dependsOn: ['guide:one-pager', 'design:module-design', 'design:config-tables'],
     maxTurns: 2,
     promptFile: PROMPT_FILES.numericEconomy,
     presetQueries: [
-      '生成经济系统数值模型',
+      '基于详细设计与配置表生成经济数值模型',
       '产出节奏更克制，拉长成长线',
       '前期更宽松，爽感优先',
     ],
@@ -136,45 +158,7 @@ const NUMERIC_STEPS: StepDef[] = [
   },
 ];
 
-const TECH_STEPS: StepDef[] = [
-  {
-    agentId: 'tech',
-    stepId: 'stack',
-    title: '技术选型报告',
-    mode: 'generative',
-    outputKind: 'markdown',
-    dependsOn: ['guide:one-pager'],
-    maxTurns: 2,
-    promptFile: PROMPT_FILES.techStack,
-    presetQueries: [
-      '生成技术选型报告',
-      '倾向 Web/H5 技术栈，快速验证',
-      '倾向成熟跨端引擎，考虑长期发展',
-    ],
-  },
-  {
-    agentId: 'tech',
-    stepId: 'risks',
-    title: '技术原型报告（架构与风险）',
-    mode: 'generative',
-    outputKind: 'markdown',
-    dependsOn: ['guide:one-pager', 'tech:stack'],
-    maxTurns: 2,
-    promptFile: PROMPT_FILES.techRisks,
-    presetQueries: [
-      '生成架构草案与风险报告',
-      '重点评估性能与包体风险',
-      '重点评估数值策划可配置化的工具链',
-    ],
-  },
-];
-
-const PLAYER_STEP_DEPENDS = [
-  'guide:one-pager',
-  'competitor:analysis',
-  'prototype:html',
-  'numeric:economy',
-];
+const PLAYER_STEP_DEPENDS = ['guide:one-pager', 'prototype:html', 'numeric:economy'];
 
 function playerStep(persona: PlayerPersona): StepDef {
   return {
@@ -194,113 +178,56 @@ function playerStep(persona: PlayerPersona): StepDef {
   };
 }
 
-const ASSEMBLE_STEPS: StepDef[] = [
-  {
-    agentId: 'assemble',
-    stepId: 'consistency',
-    title: '交叉一致性检查',
+/** 玩家总结报告：依赖全部玩家画像 step（动态），永远位于流程最后 */
+function playerSummaryStep(personas: PlayerPersona[]): StepDef {
+  return {
+    agentId: 'player',
+    stepId: 'summary',
+    title: '玩家总结报告',
     mode: 'generative',
     outputKind: 'markdown',
-    dependsOn: [
-      'guide:one-pager',
-      'competitor:analysis',
-      'numeric:economy',
-      'numeric:progression',
-      'tech:stack',
-      'tech:risks',
-    ],
+    dependsOn: personas.map((p) => `player:${p.id}` as StepKey),
     maxTurns: 2,
-    promptFile: PROMPT_FILES.assembleConsistency,
-    deliverableFile: '一致性检查报告.md',
+    promptFile: PROMPT_FILES.playerSummary,
     presetQueries: [
-      '执行交叉一致性检查',
-      '重点关注数值自洽性',
-      '重点关注玩法循环与商业模式的矛盾',
+      '汇总全部玩家评估，生成总结报告',
+      '按必须修复/建议取舍归并结论',
+      '给出对详细设计与数值的修订清单',
     ],
-  },
-  {
-    agentId: 'assemble',
-    stepId: 'gdd',
-    title: 'GDD 主文档',
-    mode: 'generative',
-    outputKind: 'markdown',
-    dependsOn: [
-      'guide:one-pager',
-      'guide:core-loop',
-      'competitor:analysis',
-      'numeric:economy',
-      'numeric:progression',
-      'tech:stack',
-      'tech:risks',
-      'assemble:consistency',
-    ],
-    maxTurns: 3,
-    promptFile: PROMPT_FILES.assembleGdd,
-    deliverableFile: 'GDD.md',
-    presetQueries: [
-      '整合全部产物，生成 GDD 主文档',
-      'GDD 更精炼，只保留开发必读信息',
-      'GDD 更详尽，包含系统细节与附录',
-    ],
-  },
-  {
-    agentId: 'assemble',
-    stepId: 'index',
-    title: '交付包索引 README',
-    mode: 'generative',
-    outputKind: 'markdown',
-    dependsOn: ['assemble:gdd'],
-    maxTurns: 2,
-    promptFile: PROMPT_FILES.assembleIndex,
-    deliverableFile: 'README.md',
-    presetQueries: [
-      '生成交付包索引 README',
-      '面向外部合作者写一份更友好的导读',
-    ],
-  },
-];
+  };
+}
 
 const AGENT_META: Record<AgentId, { title: string; description: string }> = {
   guide: {
     title: '引导收集（阶段1 · 概念）',
-    description: '通过一问一答引导你完成概念阶段的信息收集，并汇总为一页纸概念案。',
-  },
-  competitor: {
-    title: '竞品分析',
-    description: '联网调研竞品（WebSearch），撰写竞品分析报告与差异化机会。',
+    description: '通过一问一答引导你完成概念阶段的信息收集（含竞品调研与分析），并汇总为一页纸概念案。',
   },
   prototype: {
     title: 'HTML 原型',
     description: '生成单文件 HTML 可玩原型，在浏览器内直接试玩，验证核心循环。',
   },
+  design: {
+    title: '详细设计',
+    description: '模块详细设计（玩法逻辑/交互/音频音效等，子 agent 交叉检查）+ CSV 属性数值配置表。',
+  },
   numeric: {
     title: '数值分析',
-    description: '设计经济产出/回收模型与养成曲线，保证数字自洽。',
-  },
-  tech: {
-    title: '技术原型',
-    description: '技术选型建议 + 架构草案与必须先验证的技术风险。',
+    description: '基于详细设计与配置表设计经济产出/回收模型与养成曲线，保证数字自洽。',
   },
   player: {
     title: '玩家评估',
-    description: '多个模拟玩家画像，以玩家视角评估当前设计（每个画像一份报告）。',
-  },
-  assemble: {
-    title: '交付整合',
-    description: '交叉一致性检查，整合全部产物为 GDD 与交付文档包。',
+    description: '多个模拟玩家画像并行评估当前设计，最后汇总为一份玩家总结报告。',
   },
 };
 
-/** 构建完整注册表；player agent 按 persona 动态展开 */
+/** 构建完整注册表；player agent 按 persona 动态展开，末尾固定追加总结报告 step */
 export function buildRegistry(personas: PlayerPersona[]): AgentDef[] {
   const partials: Array<Pick<AgentDef, 'agentId' | 'steps'>> = [
     { agentId: 'guide', steps: [...GUIDE_CONVERSATIONAL, GUIDE_ONE_PAGER] },
-    { agentId: 'competitor', steps: [COMPETITOR_ANALYSIS] },
     { agentId: 'prototype', steps: [PROTOTYPE_HTML] },
+    { agentId: 'design', steps: DESIGN_STEPS },
     { agentId: 'numeric', steps: NUMERIC_STEPS },
-    { agentId: 'tech', steps: TECH_STEPS },
-    { agentId: 'player', steps: personas.map(playerStep) },
-    { agentId: 'assemble', steps: ASSEMBLE_STEPS },
+    { agentId: 'player', steps: [...personas.map(playerStep), playerSummaryStep(personas)] },
   ];
   return partials.map((partial) => ({ ...AGENT_META[partial.agentId], ...partial }));
 }

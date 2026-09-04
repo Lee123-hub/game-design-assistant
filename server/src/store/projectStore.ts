@@ -27,11 +27,22 @@ export async function listProjectIds(): Promise<string[]> {
   return entries.filter((e) => e.isDirectory()).map((e) => e.name);
 }
 
-export async function loadProject(projectId: string): Promise<Project | null> {
+/** 仅读盘，不做迁移（供写队列内部使用，避免队列内再入队造成死锁） */
+async function readProjectRaw(projectId: string): Promise<Project | null> {
   const file = projectFile(projectId);
   if (!(await fileExists(file))) return null;
   const raw = await fs.readFile(file, 'utf8');
   return JSON.parse(raw) as Project;
+}
+
+export async function loadProject(projectId: string): Promise<Project | null> {
+  const project = await readProjectRaw(projectId);
+  if (!project) return null;
+  // 读取即迁移：注册表变化（如新流程步骤）后，老项目在首次加载时自动补齐/清理并落盘一次
+  if (materializeSteps(project)) {
+    await saveProject(project);
+  }
+  return project;
 }
 
 export async function saveProject(project: Project): Promise<void> {
@@ -47,7 +58,7 @@ export async function updateProject(
   mutate: (p: Project) => void | Promise<void>,
 ): Promise<Project> {
   return enqueueWrite(projectId, async () => {
-    const project = await loadProject(projectId);
+    const project = await readProjectRaw(projectId);
     if (!project) throw new Error(`项目不存在: ${projectId}`);
     await mutate(project);
     project.updatedAt = new Date().toISOString();
@@ -80,23 +91,29 @@ export async function deleteProject(projectId: string): Promise<void> {
 
 /**
  * 按当前注册表把缺失的 step 物化进 project.steps（幂等）。
- * 新增 persona / 注册表变化后调用即可补齐。
+ * 新增 persona / 注册表变化后调用即可补齐。返回是否有变更。
  */
-export function materializeSteps(project: Project): void {
+export function materializeSteps(project: Project): boolean {
   const registry = buildRegistry(project.personas);
+  let changed = false;
   for (const step of registry.flatMap((a) => a.steps)) {
     const key = `${step.agentId}:${step.stepId}`;
     if (!project.steps[key]) {
       const record: StepRecord = { stepKey: key, runId: null, state: 'pending' };
       if (step.outputKind) record.outputKind = step.outputKind;
       project.steps[key] = record;
+      changed = true;
     }
   }
-  // 清理已不存在的 step（例如删除了 persona）
+  // 清理已不存在的 step（例如删除了 persona / 注册表移除了旧步骤）
   const validKeys = new Set(registry.flatMap((a) => a.steps).map((s) => `${s.agentId}:${s.stepId}`));
   for (const key of Object.keys(project.steps)) {
-    if (!validKeys.has(key)) delete project.steps[key];
+    if (!validKeys.has(key)) {
+      delete project.steps[key];
+      changed = true;
+    }
   }
+  return changed;
 }
 
 export async function listProjects(): Promise<Project[]> {

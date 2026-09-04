@@ -19,9 +19,11 @@
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",
+    "@types/archiver": "^6.0.4",
     "concurrently": "^9.1.2"
   },
   "dependencies": {
-    "adm-zip": "^0.6.0"
+    "adm-zip": "^0.6.0",
+    "archiver": "^7.0.1"
   }
 }

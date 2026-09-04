@@ -32,6 +32,12 @@ export function settingsRouter(): Router {
     res.json(toSettingsView(settings));
   });
 
+  // 明文查看 API Key（本地单机应用；仅设置页眼睛按钮调用）
+  router.get('/api/settings/apikey', async (_req, res) => {
+    const settings = await loadSettings();
+    res.json({ apiKey: settings.apiKey });
+  });
+
   router.put('/api/settings', async (req, res) => {
     const parsed = patchSchema.safeParse(req.body);
     if (!parsed.success) {

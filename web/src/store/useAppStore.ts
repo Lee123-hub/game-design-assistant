@@ -155,12 +155,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       case 'step_state': {
         const p = get().project;
-        if (p && p.steps[event.stepKey]) {
+        if (p) {
+          // key 不在 project.steps 里也接受（老项目未迁移时 registry 已有新 step），
+          // 现场补一条最小记录，避免 running/done 事件被静默丢弃
+          const prev = p.steps[event.stepKey];
           const steps = { ...p.steps };
           steps[event.stepKey] = {
-            ...steps[event.stepKey],
+            ...prev,
+            stepKey: event.stepKey,
+            runId: event.runId ?? prev?.runId ?? null,
             state: event.state,
-            runId: event.runId ?? steps[event.stepKey].runId,
             error: event.error,
           };
           set({ project: { ...p, steps } });

@@ -5,14 +5,25 @@ import type { AgentDef, StepDef } from './registry.js';
 
 // ---------- Settings ----------
 
+/** 单个 step 的运行配置快照（设置 UI 按 stepKey 粒度编辑） */
+export interface StepInfo
+  extends Pick<StepDef, 'stepId' | 'title' | 'mode' | 'dependsOn' | 'presetQueries'> {
+  stepKey: string;
+  outputKind: OutputKind;
+  defaultTools: string[];
+  promptFile: string;
+  defaultPrompt: string;
+  overridden: boolean;
+  model: string;
+  /** 玩家画像 step 不开放单独配置 */
+  configurable: boolean;
+}
+
 export interface AgentInfo {
   agentId: string;
   title: string;
   description: string;
-  steps: Array<Pick<StepDef, 'stepId' | 'title' | 'mode' | 'dependsOn' | 'presetQueries'>>;
-  defaultPrompt: string;
-  overridden: boolean;
-  overrideModel?: string;
+  steps: StepInfo[];
 }
 
 export interface SettingsTestResult {

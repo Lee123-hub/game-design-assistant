@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  AGENT_IDS,
   AGENT_LABELS,
   AGENT_TOOL_OPTIONS,
   DEFAULT_AGENT_TOOLS,
   DEEPSEEK_BASE_URL,
   DEEPSEEK_MODELS,
-  type AgentId,
   type ProviderKind,
 } from '@gda/shared';
+import type { StepInfo } from '@gda/shared';
 import { useAppStore } from '../store/useAppStore.js';
 import { api } from '../api/client.js';
 import { TrashIcon } from './icons.js';
@@ -27,20 +26,24 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
   const [provider, setProvider] = useState<ProviderKind>('deepseek');
   const [apiKey, setApiKey] = useState('');
+  const [keyVisible, setKeyVisible] = useState(false);
+  const [realKey, setRealKey] = useState('');
   const [baseUrl, setBaseUrl] = useState(DEEPSEEK_BASE_URL);
   const [defaultModel, setDefaultModel] = useState('deepseek-chat');
   const [maxRuns, setMaxRuns] = useState(3);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
-  const [editingAgent, setEditingAgent] = useState<string | null>(null);
-  const [editingPrompt, setEditingPrompt] = useState('');
-  const [editingModel, setEditingModel] = useState('');
-  const [editingTools, setEditingTools] = useState<string[]>(DEFAULT_AGENT_TOOLS);
-  const [editingSkills, setEditingSkills] = useState<string[]>([]);
-  const [editingMaxTurns, setEditingMaxTurns] = useState('');
   const [uploadingSkill, setUploadingSkill] = useState(false);
   const [saving, setSaving] = useState(false);
   const skillFileRef = useRef<HTMLInputElement>(null);
+
+  // step tab 状态：当前打开的 stepKey + 该 step 的编辑表单
+  const [activeStep, setActiveStep] = useState<string | null>(null);
+  const [editingModel, setEditingModel] = useState('');
+  const [editingPrompt, setEditingPrompt] = useState('');
+  const [editingTools, setEditingTools] = useState<string[]>(DEFAULT_AGENT_TOOLS);
+  const [editingSkills, setEditingSkills] = useState<string[]>([]);
+  const [editingMaxTurns, setEditingMaxTurns] = useState('');
 
   useEffect(() => {
     if (settings) {
@@ -57,7 +60,35 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const st = settings;
   const custom = provider === 'custom';
 
-  const overrideOf = (agentId: AgentId) => st.agentOverrides[agentId] ?? {};
+  // 可单独配置的 step 列表（玩家画像 step 不开放）；无覆盖时工具默认 = DEFAULT_AGENT_TOOLS
+  const configurableSteps: StepInfo[] = registry.flatMap((a) => a.steps).filter((s) => s.configurable);
+  const stepByKey = (key: string) => configurableSteps.find((s) => s.stepKey === key);
+  const defaultToolsOf = (step: StepInfo) => (step.defaultTools.length > 0 ? step.defaultTools : DEFAULT_AGENT_TOOLS);
+  const overrideOf = (key: string) => st.agentOverrides[key] ?? {};
+
+  function openStep(step: StepInfo) {
+    const ov = overrideOf(step.stepKey);
+    setActiveStep(step.stepKey);
+    // 直接填充具体默认模型（settings.defaultModel）；保存时与默认相同则不写入覆盖
+    setEditingModel(ov.model ?? settings?.defaultModel ?? '');
+    setEditingPrompt(ov.systemPrompt ?? step.defaultPrompt);
+    setEditingTools(ov.allowedTools ?? defaultToolsOf(step));
+    setEditingSkills(ov.skills ?? []);
+    setEditingMaxTurns(ov.maxTurns ? String(ov.maxTurns) : '');
+  }
+
+  async function toggleKeyVisible() {
+    if (!keyVisible && !realKey) {
+      try {
+        const r = await api.getApiKey();
+        setRealKey(r.apiKey);
+      } catch (err) {
+        toast('error', err instanceof Error ? err.message : String(err));
+        return;
+      }
+    }
+    setKeyVisible(!keyVisible);
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -101,13 +132,17 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
-  async function saveAgentOverride(agentId: AgentId) {
+  async function saveStepOverride(stepKey: string) {
     try {
       await saveSettings({
         agentOverrides: {
           ...st.agentOverrides,
-          [agentId]: {
-            model: editingModel || undefined,
+          [stepKey]: {
+            // 与全局默认模型相同（或为空）时不写入覆盖，保持跟随默认
+            model:
+              editingModel.trim() && editingModel.trim() !== settings?.defaultModel
+                ? editingModel.trim()
+                : undefined,
             systemPrompt: editingPrompt || undefined,
             allowedTools: editingTools,
             skills: editingSkills,
@@ -116,24 +151,27 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         },
       });
       await loadRegistry();
-      toast('info', 'Agent 配置已保存');
-      setEditingAgent(null);
+      toast('info', '该步骤配置已保存');
     } catch (err) {
       toast('error', err instanceof Error ? err.message : String(err));
     }
   }
 
-  async function resetAgentOverride(agentId: AgentId) {
+  async function resetStepOverride(stepKey: string) {
     try {
       const next = { ...st.agentOverrides };
-      delete next[agentId];
+      delete next[stepKey];
       await saveSettings({ agentOverrides: next });
       await loadRegistry();
+      const step = stepByKey(stepKey);
+      if (step) openStep(step); // 回填为默认值
       toast('info', '已恢复默认配置');
     } catch (err) {
       toast('error', err instanceof Error ? err.message : String(err));
     }
   }
+
+  const active = activeStep ? stepByKey(activeStep) : undefined;
 
   return (
     <div className="modal-mask" onClick={onClose}>
@@ -158,13 +196,32 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               </select>
             </label>
             <label>
-              <div className="muted">API Key（留空保持不变）</div>
-              <input
-                type="password"
-                value={apiKey}
-                placeholder={settings.hasApiKey ? '••••••••（已配置）' : 'sk-...'}
-                onChange={(e) => setApiKey(e.target.value)}
-              />
+              <div className="muted">API Key（点击 👁 查看明文；留空保存则保持不变）</div>
+              <div className="row" style={{ gap: 6 }}>
+                <input
+                  type="text"
+                  style={{ flex: 1 }}
+                  value={keyVisible ? realKey : apiKey || (settings.hasApiKey ? '*******' : '')}
+                  placeholder={settings.hasApiKey ? '' : 'sk-...'}
+                  onFocus={(e) => {
+                    // 未查看明文时开始输入：全选掩码，直接输入即可覆盖
+                    if (!keyVisible && !apiKey && settings.hasApiKey) e.currentTarget.select();
+                  }}
+                  onChange={(e) => {
+                    // 掩码星号不是真实 key 的一部分：剥离后再保存
+                    const v = e.target.value.replaceAll('*', '');
+                    setApiKey(v);
+                    if (keyVisible) setRealKey(v);
+                  }}
+                />
+                <button
+                  className="icon-btn"
+                  title={keyVisible ? '隐藏' : '查看明文'}
+                  onClick={() => void toggleKeyVisible()}
+                >
+                  {keyVisible ? '🙈' : '👁'}
+                </button>
+              </div>
             </label>
             <label>
               <div className="muted">Base URL{custom ? '' : '（DeepSeek 官方固定）'}</div>
@@ -220,10 +277,10 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="panel">
-          <h3>Agent 配置（模型 / 提示词 / 工具 / 技能）</h3>
+          <h3>步骤配置（按步骤独立管理模型 / 提示词 / 工具 / 轮数 / 技能）</h3>
           <div style={{ marginBottom: 14 }}>
             <div className="row spread">
-              <div className="muted">外挂技能包（zip，Claude Code SKILL.md 格式），勾选后挂载给对应 Agent</div>
+              <div className="muted">外挂技能包（zip，Claude Code SKILL.md 格式），在各步骤中勾选挂载</div>
               <input
                 ref={skillFileRef}
                 type="file"
@@ -275,7 +332,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                       title="删除技能包"
                       onClick={() =>
                         requestConfirm(
-                          `删除技能包「${pkg.name}」？已挂载它的 Agent 将不再加载该技能。`,
+                          `删除技能包「${pkg.name}」？已挂载它的步骤将不再加载该技能。`,
                           () => {
                             void deleteSkill(pkg.name)
                               .then(() => toast('info', '技能包已删除'))
@@ -293,155 +350,139 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               </div>
             )}
           </div>
-          {AGENT_IDS.map((agentId) => {
-            const info = registry.find((a) => a.agentId === agentId);
-            const ov = overrideOf(agentId);
-            return (
-              <div key={agentId} style={{ marginBottom: 10 }}>
-                <div className="row spread">
-                  <div>
-                    <strong>{AGENT_LABELS[agentId]}</strong>{' '}
-                    <span className="muted">
-                      {ov.model ? `模型: ${ov.model}` : `默认模型: ${settings.defaultModel}`}
-                      {ov.systemPrompt ? ' · 提示词已自定义' : ''}
-                      {ov.allowedTools &&
-                      ov.allowedTools.length > 0 &&
-                      (ov.allowedTools.length !== DEFAULT_AGENT_TOOLS.length ||
-                        ov.allowedTools.some((t) => !DEFAULT_AGENT_TOOLS.includes(t)))
-                        ? ' · 工具已自定义'
-                        : ''}
-                      {ov.skills && ov.skills.length > 0 ? ` · 技能: ${ov.skills.join('、')}` : ''}
-                    </span>
-                  </div>
-                  <div className="row">
-                    <button
-                      onClick={() => {
-                        setEditingAgent(agentId);
-                        setEditingPrompt(ov.systemPrompt ?? info?.defaultPrompt ?? '');
-                        setEditingModel(ov.model ?? '');
-                        setEditingTools(ov.allowedTools ?? DEFAULT_AGENT_TOOLS);
-                        setEditingSkills(ov.skills ?? []);
-                        setEditingMaxTurns(ov.maxTurns ? String(ov.maxTurns) : '');
-                      }}
-                    >
-                      配置
-                    </button>
-                    {(ov.model || ov.systemPrompt || ov.allowedTools || ov.skills) && (
-                      <button className="danger" onClick={() => resetAgentOverride(agentId)}>
-                        恢复默认
-                      </button>
-                    )}
-                  </div>
+
+          {/* step tab 条 */}
+          <div className="tabs" style={{ flexWrap: 'wrap' }}>
+            {configurableSteps.map((step) => {
+              const ov = overrideOf(step.stepKey);
+              const overridden = Boolean(ov.model || ov.systemPrompt || ov.allowedTools || ov.skills || ov.maxTurns);
+              const [agentId] = step.stepKey.split(':');
+              return (
+                <button
+                  key={step.stepKey}
+                  className={activeStep === step.stepKey ? 'active' : ''}
+                  title={`${AGENT_LABELS[agentId as keyof typeof AGENT_LABELS] ?? agentId} · ${step.title}`}
+                  onClick={() => openStep(step)}
+                >
+                  {step.title}
+                  {overridden ? ' ●' : ''}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 当前 step 的编辑表单 */}
+          {active && (
+            <div style={{ marginTop: 10 }}>
+              <div className="row spread">
+                <strong>{active.title}</strong>
+                {(overrideOf(active.stepKey).model ||
+                  overrideOf(active.stepKey).systemPrompt ||
+                  overrideOf(active.stepKey).allowedTools ||
+                  overrideOf(active.stepKey).skills ||
+                  overrideOf(active.stepKey).maxTurns) && (
+                  <button className="danger" onClick={() => resetStepOverride(active.stepKey)}>
+                    恢复默认
+                  </button>
+                )}
+              </div>
+              <label style={{ display: 'block', marginTop: 8 }}>
+                <div className="muted">
+                  模型（已填充该步骤当前生效的默认值；只有清空后才会显示 placeholder）
                 </div>
-                {editingAgent === agentId && info && (
-                  <div style={{ marginTop: 8 }}>
-                    <label>
-                      <div className="muted">
-                        模型（留空使用默认；填当前提供方支持的模型名）
-                      </div>
+                <input
+                  value={editingModel}
+                  placeholder={settings.defaultModel}
+                  onChange={(e) => setEditingModel(e.target.value)}
+                />
+              </label>
+              <div style={{ marginTop: 8 }}>
+                <div className="muted">
+                  可用工具（该步骤默认工具集：
+                  <strong>{defaultToolsOf(active).join('、')}</strong>
+                  {defaultToolsOf(active).includes('Agent') ? '；Agent 工具可让模型派生子任务' : '；默认不含 Agent 工具'}
+                  ）
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 4 }}>
+                  {AGENT_TOOL_OPTIONS.map((tool) => (
+                    <label key={tool} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                       <input
-                        value={editingModel}
-                        placeholder="（使用默认）"
-                        onChange={(e) => setEditingModel(e.target.value)}
+                        type="checkbox"
+                        checked={editingTools.includes(tool)}
+                        onChange={(e) =>
+                          setEditingTools((prev) =>
+                            e.target.checked
+                              ? [...prev, tool]
+                              : prev.filter((t) => t !== tool),
+                          )
+                        }
                       />
+                      {tool}
                     </label>
-                    <div style={{ marginTop: 8 }}>
-                      <div className="muted">
-                        可用工具（默认全部放开但{' '}
-                        <strong>不含 Agent 工具</strong>；Agent 工具可让模型派生子任务）
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 4 }}>
-                        {AGENT_TOOL_OPTIONS.map((tool) => (
-                          <label key={tool} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                            <input
-                              type="checkbox"
-                              checked={editingTools.includes(tool)}
-                              onChange={(e) =>
-                                setEditingTools((prev) =>
-                                  e.target.checked
-                                    ? [...prev, tool]
-                                    : prev.filter((t) => t !== tool),
-                                )
-                              }
-                            />
-                            {tool}
-                          </label>
-                        ))}
-                      </div>
-                      <button
-                        style={{ marginTop: 4 }}
-                        onClick={() => setEditingTools(DEFAULT_AGENT_TOOLS)}
+                  ))}
+                </div>
+                <button style={{ marginTop: 4 }} onClick={() => setEditingTools(defaultToolsOf(active))}>
+                  恢复该步骤默认工具集
+                </button>
+              </div>
+              <label style={{ display: 'block', marginTop: 8 }}>
+                <div className="muted">最大工具轮数（默认 99，留空即用默认）</div>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  style={{ maxWidth: 160 }}
+                  placeholder="（默认 99）"
+                  value={editingMaxTurns}
+                  onChange={(e) => setEditingMaxTurns(e.target.value)}
+                />
+              </label>
+              <div style={{ marginTop: 8 }}>
+                <div className="muted">外挂技能（挂载后该步骤可在对话中使用这些技能）</div>
+                {skillPackages.length === 0 ? (
+                  <div className="muted" style={{ marginTop: 4 }}>
+                    尚未上传技能包（可在上方上传）
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 4 }}>
+                    {skillPackages.map((pkg) => (
+                      <label
+                        key={pkg.name}
+                        title={pkg.skills.map((s) => `${s.name}: ${s.description}`).join('\n')}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
                       >
-                        恢复默认工具集
-                      </button>
-                    </div>
-                    <label style={{ display: 'block', marginTop: 8 }}>
-                      <div className="muted">
-                        最大工具轮数（留空使用默认：普通步骤 基础+6；HTML 原型 基础+16）
-                      </div>
-                      <input
-                        type="number"
-                        min={1}
-                        max={100}
-                        style={{ maxWidth: 160 }}
-                        placeholder="（使用默认）"
-                        value={editingMaxTurns}
-                        onChange={(e) => setEditingMaxTurns(e.target.value)}
-                      />
-                    </label>
-                    <div style={{ marginTop: 8 }}>
-                      <div className="muted">外挂技能（挂载后该 Agent 可在对话中使用这些技能）</div>
-                      {skillPackages.length === 0 ? (
-                        <div className="muted" style={{ marginTop: 4 }}>
-                          尚未上传技能包（可在上方上传）
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 4 }}>
-                          {skillPackages.map((pkg) => (
-                            <label
-                              key={pkg.name}
-                              title={pkg.skills.map((s) => `${s.name}: ${s.description}`).join('\n')}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={editingSkills.includes(pkg.name)}
-                                onChange={(e) =>
-                                  setEditingSkills((prev) =>
-                                    e.target.checked
-                                      ? [...prev, pkg.name]
-                                      : prev.filter((s) => s !== pkg.name),
-                                  )
-                                }
-                              />
-                              {pkg.name}
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <label style={{ display: 'block', marginTop: 8 }}>
-                      <div className="muted">系统提示词</div>
-                      <textarea
-                        rows={10}
-                        value={editingPrompt}
-                        onChange={(e) => setEditingPrompt(e.target.value)}
-                      />
-                    </label>
-                    <div className="row" style={{ marginTop: 8 }}>
-                      <button
-                        className="primary"
-                        onClick={() => saveAgentOverride(agentId)}
-                      >
-                        保存该 Agent
-                      </button>
-                      <button onClick={() => setEditingAgent(null)}>取消</button>
-                    </div>
+                        <input
+                          type="checkbox"
+                          checked={editingSkills.includes(pkg.name)}
+                          onChange={(e) =>
+                            setEditingSkills((prev) =>
+                              e.target.checked
+                                ? [...prev, pkg.name]
+                                : prev.filter((s) => s !== pkg.name),
+                            )
+                          }
+                        />
+                        {pkg.name}
+                      </label>
+                    ))}
                   </div>
                 )}
               </div>
-            );
-          })}
+              <label style={{ display: 'block', marginTop: 8 }}>
+                <div className="muted">系统提示词（该步骤的内置默认见下方编辑框，可直接修改）</div>
+                <textarea
+                  rows={10}
+                  value={editingPrompt}
+                  onChange={(e) => setEditingPrompt(e.target.value)}
+                />
+              </label>
+              <div className="row" style={{ marginTop: 8 }}>
+                <button className="primary" onClick={() => saveStepOverride(active.stepKey)}>
+                  保存该步骤
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="row">

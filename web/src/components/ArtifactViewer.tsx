@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import type { ArtifactContent, StepFileInfo } from '@gda/shared';
 import { api } from '../api/client.js';
 import { useAppStore } from '../store/useAppStore.js';
+import { CsvTable } from './CsvTable.js';
 import { TrashIcon } from './icons.js';
 
 interface Props {
@@ -142,7 +143,7 @@ export function ArtifactViewer({ stepKey }: Props) {
         <button className="link-btn" onClick={() => setSelected(null)}>
           ← 返回文件列表
         </button>
-        {artifact?.outputKind === 'html' && (
+        {artifact && !selected.endsWith('.csv') && (
           <button className="link-btn" onClick={toggleFullscreen}>
             {fullscreen ? '退出全屏' : '⛶ 全屏'}
           </button>
@@ -150,7 +151,14 @@ export function ArtifactViewer({ stepKey }: Props) {
       </div>
       {error && <div className="muted">{error}</div>}
       {!error && !artifact && <div className="muted">加载中…</div>}
-      {artifact?.outputKind === 'html' ? (
+      {artifact && currentId && selected.endsWith('.csv') ? (
+        <CsvTable
+          projectId={currentId}
+          stepKey={stepKey}
+          fileName={selected}
+          content={artifact.content}
+        />
+      ) : artifact?.outputKind === 'html' ? (
         <div className="prototype-wrap" ref={previewWrapRef}>
           <iframe className="prototype-frame" sandbox="allow-scripts" srcDoc={artifact.content} />
           {/* 全屏时顶部工具栏不可见，悬浮按钮提供退出入口 */}
@@ -161,7 +169,12 @@ export function ArtifactViewer({ stepKey }: Props) {
           )}
         </div>
       ) : artifact ? (
-        <div className="markdown">
+        <div className="markdown" ref={previewWrapRef}>
+          {fullscreen && (
+            <button className="fullscreen-exit" onClick={toggleFullscreen}>
+              ✕ 退出全屏
+            </button>
+          )}
           <Markdown remarkPlugins={[remarkGfm]}>{artifact.content}</Markdown>
         </div>
       ) : null}

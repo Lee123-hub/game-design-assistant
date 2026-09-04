@@ -33,6 +33,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   // settings
   getSettings: () => request<SettingsView>('/api/settings'),
+  getApiKey: () => request<{ apiKey: string }>('/api/settings/apikey'),
   saveSettings: (patch: Record<string, unknown>) =>
     request<SettingsView>('/api/settings', { method: 'PUT', body: JSON.stringify(patch) }),
   testSettings: () =>
@@ -123,6 +124,13 @@ export const api = {
       `/api/projects/${projectId}/steps/${agentId}/${stepId}/files/${encodeURIComponent(name)}`,
     );
   },
+  saveStepFile: (projectId: string, stepKey: StepKey, name: string, content: string) => {
+    const [agentId, stepId] = stepKey.split(':');
+    return request<{ ok: boolean; updatedAt: string }>(
+      `/api/projects/${projectId}/steps/${agentId}/${stepId}/files/${encodeURIComponent(name)}`,
+      { method: 'PUT', body: JSON.stringify({ content }) },
+    );
+  },
   deleteStepFile: (projectId: string, stepKey: StepKey, name: string) => {
     const [agentId, stepId] = stepKey.split(':');
     return request<{ ok: boolean; remaining: number }>(
@@ -137,12 +145,8 @@ export const api = {
     );
   },
 
-  deliverablesList: (projectId: string) =>
-    request<{ files: string[] }>(`/api/projects/${projectId}/deliverables`),
-  deliverableContent: (projectId: string, file: string) =>
-    request<{ content: string; updatedAt: string }>(
-      `/api/projects/${projectId}/deliverables/${encodeURIComponent(file)}`,
-    ),
+  // 交付包：zip 下载地址（浏览器直接下载）
+  exportZipUrl: (projectId: string) => `/api/projects/${projectId}/export.zip`,
 };
 
 export function stepKeyOf(agentId: string, stepId: string): StepKey {

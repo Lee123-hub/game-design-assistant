@@ -32,17 +32,18 @@ export function ProjectView() {
   const [stepKey, setStepKey] = useState<StepKey | null>(null);
   const [modal, setModal] = useState<ModalKind>(null);
 
-  // 顺序解锁：全流程扁平顺序中，某步骤只有在其之前所有步骤都完成后才可查看
   const order = registry.flatMap((a) =>
     a.steps.map((s) => `${a.agentId}:${s.stepId}` as StepKey),
   );
+  // 依赖解锁：某步骤的全部 dependsOn 都完成后即可运行/查看
+  // （玩家画像各步骤之间没有依赖，因此多个画像评估可以并行跑）
+  const stepDefByKey = new Map(
+    registry.flatMap((a) => a.steps.map((s) => [`${a.agentId}:${s.stepId}` as StepKey, s] as const)),
+  );
   const isUnlocked = (key: StepKey | null): boolean => {
     if (!key) return false;
-    const idx = order.indexOf(key);
-    if (idx <= 0) return true;
-    return order
-      .slice(0, idx)
-      .every((k) => project?.steps[k]?.state === 'done');
+    const deps = stepDefByKey.get(key)?.dependsOn ?? [];
+    return deps.every((k) => project?.steps[k]?.state === 'done');
   };
 
   // 默认选中第一个「已解锁且未完成」的步骤；registry 变化或当前选择无效时兜底
@@ -189,8 +190,8 @@ export function ProjectView() {
                 )}
               </div>
               <div className="row">
-                {agentInfo?.overridden && (
-                  <span className="muted">已自定义模型/提示词</span>
+                {stepDef?.overridden && (
+                  <span className="muted">本步骤已自定义模型/提示词</span>
                 )}
               </div>
             </div>

@@ -10,7 +10,7 @@ export interface StepDef {
   title: string;
   mode: StepMode;
   outputKind: OutputKind;
-  /** 上游产物注入为上下文 */
+  /** 上游产物注入为上下文；同时是解锁门控（全部 done 才解锁） */
   dependsOn: StepKey[];
   /** 允许该 step 使用 WebSearch 工具（agent 自行联网调研） */
   useWebSearch?: boolean;
@@ -18,7 +18,9 @@ export interface StepDef {
   promptFile: string;
   /** 默认 maxTurns，generative 一般 1-2 */
   maxTurns: number;
-  /** 完成后同步复制到 deliverables/ 的文件名（assemble 步骤用） */
+  /** step 的默认工具集（缺省 = DEFAULT_AGENT_TOOLS，不含 Agent） */
+  defaultTools?: string[];
+  /** 完成后同步复制到 deliverables/ 的文件名（已废弃，保留字段兼容旧 project.json） */
   deliverableFile?: string;
   /** 聊天输入框上方预置的可点击 query（点击即作为消息发起） */
   presetQueries?: string[];
@@ -37,14 +39,11 @@ export interface AgentDef {
 export const PROMPT_FILES = {
   guideConversational: 'guide-conversational.md',
   guideOnePager: 'guide-one-pager.md',
-  competitorAnalysis: 'competitor-analysis.md',
   prototypeHtml: 'prototype-html.md',
+  designModule: 'design-module.md',
+  designConfigTables: 'design-config-tables.md',
   numericEconomy: 'numeric-economy.md',
   numericProgression: 'numeric-progression.md',
-  techStack: 'tech-stack.md',
-  techRisks: 'tech-risks.md',
   playerEval: 'player-eval.md',
-  assembleConsistency: 'assemble-consistency.md',
-  assembleGdd: 'assemble-gdd.md',
-  assembleIndex: 'assemble-index.md',
+  playerSummary: 'player-summary.md',
 } as const;

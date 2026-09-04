@@ -56,7 +56,7 @@ const CLAUDE_MD_TEMPLATE = `# 项目文档说明
 - \`steps/<agentId>/<stepId>.<YYYYMMDD-HHMMSS-iii>.md\` — 各步骤产物版本文件，命名 = 名称+时间戳；**按创建时间倒序，最新一个即当前版本**，下游 step 的参考依据。
 - \`steps/<agentId>/<stepId>.md\` — 早期遗留的无时间戳版本（存在时同样参与按时间排序）。
 - \`prototypes/<stepId>.<YYYYMMDD-HHMMSS-iii>.html\` — HTML 可玩原型版本文件，命名规则同上。
-- \`deliverables/\` — 最终交付文档（assemble 阶段产出）。
+- \`deliverables/\` — 历史遗留交付文档（旧版本流程产出；现交付包为程序直接打包下载）。
 - \`runs/<runId>.jsonl\` — 每次运行的原始日志，由程序管理，禁止读写。
 - \`sessions/<agentId>__<stepId>.json\` — 每个步骤的访谈会话记录，由程序管理，禁止读写。
 - \`CLAUDE.md\` — 本文件。
@@ -93,16 +93,24 @@ export const WORKSPACE_ALL_TOOLS = [
   'Bash',
 ];
 
-/** 默认工具集：全量去掉 Agent 工具（用户要求：每个 agent 默认不可使用 agent 工具） */
+/** 默认工具集：全量去掉 Agent 工具（用户要求：默认不可使用 agent 工具） */
 export const DEFAULT_AGENT_TOOLS = WORKSPACE_ALL_TOOLS.filter((t) => t !== 'Agent');
 
-/** 项目内允许 agent 使用的工具集：agent 覆盖配置优先，未配置则用默认（不含 Agent） */
+/**
+ * 项目内允许 step 使用的工具集，优先级：
+ * step 覆盖配置（settings.agentOverrides[stepKey].allowedTools）>
+ * step 内置默认（def.defaultTools，如模块详细设计开启 Agent 工具）> 全局默认（不含 Agent）
+ */
 export function workspaceToolSet(def: StepDef, override?: { allowedTools?: string[] }): string[] {
-  void def;
   const custom = override?.allowedTools;
   if (custom && custom.length > 0) {
     const known = new Set<string>(WORKSPACE_ALL_TOOLS);
     const filtered = custom.filter((t) => known.has(t));
+    if (filtered.length > 0) return filtered;
+  }
+  if (def.defaultTools && def.defaultTools.length > 0) {
+    const known = new Set<string>(WORKSPACE_ALL_TOOLS);
+    const filtered = def.defaultTools.filter((t) => known.has(t));
     if (filtered.length > 0) return filtered;
   }
   return DEFAULT_AGENT_TOOLS;
@@ -111,28 +119,33 @@ export function workspaceToolSet(def: StepDef, override?: { allowedTools?: strin
 /**
  * 本轮运行的轮数上限：
  * - agent 覆盖配置的 maxTurns 优先（用户在设置里配置）
- * - 默认 = step 基础轮数 + 工具余量（抽读上下文 + 写文件）；html 原型额外 +10
- *   （实测 html 步骤 Read 旧版 + ls + date + Write + node 校验 + 多次 Edit 修正，
- *   9 轮会被 max_turns 截断）
+ * - 默认 99（用户要求：默认轮数 99，等于基本不限制工具轮数）
  */
-export function workspaceMaxTurns(def: StepDef, override?: { maxTurns?: number }): number {
+export function workspaceMaxTurns(_def: StepDef, override?: { maxTurns?: number }): number {
   const custom = override?.maxTurns;
   if (custom && Number.isFinite(custom) && custom >= 1) return Math.floor(custom);
-  const bonus = def.outputKind === 'html' ? 6 + 10 : 6;
-  return def.maxTurns + bonus;
+  return 99;
 }
 
-/** 每次运行注入 system prompt 的工作区约定（所有 agent 一致，轻量模式） */
-export const WORKSPACE_PREAMBLE = `## 工作区约定
+/** 工作区约定公共部分（第 1~3 条，generative 与 conversational 共用） */
+const WORKSPACE_BASE = `## 工作区约定
 
 本次运行的工作目录（cwd）是本项目唯一的文档目录，所有 agent 共用。程序已在下方提供「程序扫描基线」文件清单，遵循：
 
 1. **以程序基线为准**：基线里列出的主文件路径即各步骤的**最新版本**，无需自行 Glob 全量扫描；文件名中带时间戳后缀的是历史版本归档，不要读取。project.json 可读（取 personas / competitorNotes / step 状态），但禁止修改。
 2. **按需抽读**：只 Read 与当前任务直接相关的主文件（上游产物等），不必通读全部文档；runs/ 与 sessions/ 由程序管理，禁止读写。
-3. **CLAUDE.md 轻量维护**：仅当发现基线与实际不符（文件缺失、新增、已过时）时，用 Edit 更新 CLAUDE.md 的「当前文件清单」；一致则不要动。只允许写入本工作区内（cwd）的文件，工作区外的路径一律禁止。
+3. **CLAUDE.md 轻量维护**：仅当发现基线与实际不符（文件缺失、新增、已过时）时，用 Edit 更新 CLAUDE.md 的「当前文件清单」；一致则不要动。只允许写入本工作区内（cwd）的文件，工作区外的路径一律禁止。`;
+
+/** generative 步骤的工作区约定：模型自己用 Write 写产物 */
+export const WORKSPACE_PREAMBLE = `${WORKSPACE_BASE}
 4. **区分产出与问答**：
    - 执行步骤任务（生成/修改产物）→ 按「产物写入要求」用 Write 工具把产物全文写入指定路径的版本文件，聊天回复只写一句完成说明，不要在回复中重复产物全文。
    - 用户消息是**询问/咨询**（如"你能看到哪些文档""上一步产出了什么"）→ 不写产物文件，直接在回复中简明回答，并在回复开头加 \`[Q&A]\`（程序会把它作为对话消息保存，不影响产物）。`;
+
+/** conversational（访谈）步骤的工作区约定：不写产物，产出统一由程序落盘，避免与服务端访谈记录重复 */
+export const WORKSPACE_PREAMBLE_CONVERSATIONAL = `${WORKSPACE_BASE}
+4. **不要写产物文件**：访谈类步骤的产物（访谈记录 + 小结）由程序在会话结束时统一落盘，包括最终小结在内的所有内容直接写在对话回复里即可，**不要调用 Write 写任何产物文件**。
+   - 用户消息是**询问/咨询**（如"你能看到哪些文档""上一步产出了什么"）→ 直接在回复中简明回答，并在回复开头加 \`[Q&A]\`（程序会把它作为对话消息保存，不影响产物）。`;
 
 function pad(n: number): string {
   return String(n).padStart(2, '0');
@@ -161,14 +174,16 @@ export async function buildDocManifest(
       const rel =
         def.outputKind === 'html'
           ? `prototypes/${def.stepId}.<时间戳>.html`
-          : `steps/${agent.agentId}/${def.stepId}.<时间戳>.md`;
+          : def.outputKind === 'csv'
+            ? `steps/${agent.agentId}/${def.stepId}[-说明].<时间戳>.csv|.md`
+            : `steps/${agent.agentId}/${def.stepId}.<时间戳>.md`;
       const files = await listStepFiles(project.id, stepKey, def.outputKind);
       if (files.length > 0) {
         const latest = files[0];
         const archives = files.length - 1;
         lines.push(
           `- \`${path.join(path.basename(loc.dir), latest.name)}\` — ${def.title}｜状态 ${state}｜最新版 ${formatTs(latest.updatedAt)}${
-            archives > 0 ? `｜历史版本 ${archives} 个（\`${path.basename(loc.dir)}/${def.stepId}.*${loc.ext}\`）` : ''
+            archives > 0 ? `｜历史版本 ${archives} 个（\`${path.basename(loc.dir)}/${def.stepId}*.*\`）` : ''
           }`,
         );
       } else {
@@ -192,6 +207,24 @@ export async function buildDocManifest(
 /** generative 步骤的产物写入要求：用 Write 工具把产物写到指定目录，文件名=名称+时间戳 */
 export function artifactWriteInstruction(def: StepDef): string {
   const now = versionStamp();
+  if (def.outputKind === 'csv') {
+    return [
+      '## 产物写入要求（必须执行）',
+      '',
+      '本步骤的最终产物是一组 CSV 配置表 + 一份表格说明文档，必须用 Write 工具写入：',
+      '',
+      `- 目录：\`steps/${def.agentId}/\`（项目工作区内）`,
+      '- CSV 表：1 张到多张，文件名规范 `config-tables[-表名后缀].<YYYYMMDD-HHMMSS-iii>.csv`（后缀用小写英文/数字/连字符，见名知意，如 `config-tables-hero.csv`；同名同一轮的表共用同一个时间戳）',
+      `- 表格说明：恰好 1 份，文件名 \`config-tables-说明.<YYYYMMDD-HHMMSS-iii>.md\`，与本次全部 CSV 共用同一个时间戳，本次建议时间戳 \`${now}\`（以实际写入时刻为准）`,
+      '',
+      'CSV 格式要求：',
+      '- 第一行为表头（列名）；枚举型列（状态/类型/品质等有限可选值）必须在说明文档中列出该列的**全部可选值集合**，且表内只使用这些值',
+      '- 数字型列填纯数字（不加单位、不加千分位、不加引号）；文本列如含逗号需用双引号包裹',
+      '- 编码 UTF-8（无 BOM），逗号分隔；程序会把表格渲染为应用内可编辑表格（枚举列下拉选择可选集合、数字列直接填写）',
+      '',
+      '聊天回复里只写一句完成说明（写了几张表、各覆盖什么模块），不要把 CSV 内容贴进回复。',
+    ].join('\n');
+  }
   if (def.outputKind === 'html') {
     return [
       '## 产物写入要求（必须执行）',

@@ -772,6 +772,15 @@ select:focus {
 .prototype-wrap:fullscreen .fullscreen-exit {
   position: fixed;
 }
+/* markdown 全屏：铺满视口、可滚动，阅读友好 */
+.markdown:fullscreen {
+  max-height: 100vh;
+  padding: 32px max(24px, calc((100vw - 900px) / 2));
+  background: var(--bg);
+}
+.markdown:fullscreen .fullscreen-exit {
+  position: fixed;
+}
 .fullscreen-exit:hover {
   opacity: 1;
 }
@@ -792,4 +801,76 @@ select:focus {
 .tabs button.active {
   background: var(--accent-dim);
   border-color: var(--accent);
+}
+
+/* ---------- CSV 可编辑表格 ---------- */
+.csv-table-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.csv-toolbar {
+  align-items: center;
+}
+.csv-scroll {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.csv-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+.csv-table th,
+.csv-table td {
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  padding: 4px 6px;
+  text-align: left;
+  white-space: nowrap;
+}
+.csv-table th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  font-weight: 600;
+  z-index: 1;
+}
+.csv-table tr:last-child td {
+  border-bottom: none;
+}
+.csv-table .csv-rownum {
+  color: var(--muted);
+  width: 36px;
+  text-align: right;
+}
+.csv-table .csv-coltype {
+  font-weight: 400;
+  font-size: 11px;
+  margin-left: 4px;
+}
+.csv-table input,
+.csv-table select {
+  width: 100%;
+  min-width: 90px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.csv-table input:focus,
+.csv-table select:focus {
+  border-color: var(--accent);
+  background: var(--panel);
+  outline: none;
+}
+.csv-table input[type='number'] {
+  min-width: 70px;
+}
+.csv-hint {
+  font-size: 12px;
 }

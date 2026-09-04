@@ -15,22 +15,25 @@ export async function loadPromptTemplate(fileName: string): Promise<string> {
   return content;
 }
 
-/** 解析最终系统提示词：用户覆盖 > 内置默认 */
+/**
+ * 解析最终系统提示词：用户覆盖 > 内置默认。
+ * 覆盖按 stepKey 粒度（settings.agentOverrides["agentId:stepId"]）。
+ */
 export async function resolveSystemPrompt(
   settings: Settings,
-  agentId: string,
+  stepKey: string,
   promptFile: string,
 ): Promise<string> {
-  const override = settings.agentOverrides[agentId as keyof typeof settings.agentOverrides];
+  const override = settings.agentOverrides[stepKey];
   if (override?.systemPrompt && override.systemPrompt.trim()) {
     return override.systemPrompt;
   }
   return loadPromptTemplate(promptFile);
 }
 
-/** 解析 agent 的最终模型：override > settings.defaultModel（模型名自由输入，不再枚举校验） */
-export function resolveModel(settings: Settings, agentId: string): string {
-  const override = settings.agentOverrides[agentId as keyof typeof settings.agentOverrides];
+/** 解析 step 的最终模型：step 覆盖 > settings.defaultModel（模型名自由输入） */
+export function resolveModel(settings: Settings, stepKey: string): string {
+  const override = settings.agentOverrides[stepKey];
   if (override?.model?.trim()) return override.model.trim();
   return settings.defaultModel;
 }

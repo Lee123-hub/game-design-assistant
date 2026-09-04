@@ -1,32 +1,15 @@
 // Step / agent 相关共享类型
 
-export type AgentId =
-  | 'guide'
-  | 'competitor'
-  | 'prototype'
-  | 'numeric'
-  | 'tech'
-  | 'player'
-  | 'assemble';
+export type AgentId = 'guide' | 'prototype' | 'design' | 'numeric' | 'player';
 
-export const AGENT_IDS: AgentId[] = [
-  'guide',
-  'competitor',
-  'prototype',
-  'numeric',
-  'tech',
-  'player',
-  'assemble',
-];
+export const AGENT_IDS: AgentId[] = ['guide', 'prototype', 'design', 'numeric', 'player'];
 
 export const AGENT_LABELS: Record<AgentId, string> = {
   guide: '引导收集',
-  competitor: '竞品分析',
   prototype: 'HTML 原型',
+  design: '详细设计',
   numeric: '数值分析',
-  tech: '技术原型',
   player: '玩家评估',
-  assemble: '交付整合',
 };
 
 /** step 运行状态。waiting_input 仅 conversational step 在等用户回答时出现 */
@@ -54,6 +37,12 @@ export interface StepRecord {
   outputKind?: OutputKind;
 }
 
-export type OutputKind = 'markdown' | 'html';
+/**
+ * 产物形态：
+ * - markdown：单份 md 文档
+ * - html：单文件可玩原型
+ * - csv：1~N 份 csv 配置表 + 1 份说明 md（详细设计·配置表节点）
+ */
+export type OutputKind = 'markdown' | 'html' | 'csv';
 
 export type StepMode = 'generative' | 'conversational';

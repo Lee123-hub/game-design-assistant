@@ -34,6 +34,7 @@ import {
   looksLikeQuestion,
   projectDir,
   WORKSPACE_PREAMBLE,
+  WORKSPACE_PREAMBLE_CONVERSATIONAL,
   workspaceMaxTurns,
   workspaceToolSet,
 } from './workspace.js';
@@ -208,9 +209,9 @@ async function executeGenerative(
   try {
     await setStepState(project.id, stepKey, 'running', { runId, startedAt: live.startedAt, error: undefined });
     const settings = await loadSettings();
-    const systemPrompt = await resolveSystemPrompt(settings, def.agentId, def.promptFile);
-    const model = resolveModel(settings, def.agentId);
-    const override = settings.agentOverrides[def.agentId as keyof typeof settings.agentOverrides];
+    const systemPrompt = await resolveSystemPrompt(settings, stepKey, def.promptFile);
+    const model = resolveModel(settings, stepKey);
+    const override = settings.agentOverrides[stepKey];
     const blocks = questionMode ? [] : await buildContextBlocks(project, registry, def);
     const brief = questionMode
       ? await buildWorkspaceBrief(project, registry)
@@ -344,6 +345,9 @@ async function executeGenerative(
           sessionId: result.sessionId,
         });
       }
+    } else if (def.outputKind === 'csv') {
+      // D-csv：csv 步骤不允许正文兜底（会把说明文字写进 csv 文件），必须让 agent 写文件
+      throw new Error('未在产物目录中找到本次写出的 CSV/说明文件，请按「产物写入要求」用 Write 工具写入后重试');
     } else {
       // D. markdown 兜底：agent 没有写文件（或检测竞态），把回复正文落盘为版本文件
       const text = finalText || '（模型未返回正文内容）';
@@ -515,14 +519,14 @@ async function executeConversational(
   try {
     await setStepState(project.id, stepKey, 'running', { runId, startedAt: live.startedAt, error: undefined });
     const settings = await loadSettings();
-    const systemPrompt = await resolveSystemPrompt(settings, def.agentId, def.promptFile);
-    const model = resolveModel(settings, def.agentId);
-    const override = settings.agentOverrides[def.agentId as keyof typeof settings.agentOverrides];
+    const systemPrompt = await resolveSystemPrompt(settings, stepKey, def.promptFile);
+    const model = resolveModel(settings, stepKey);
+    const override = settings.agentOverrides[stepKey];
 
-    // 首条用户消息：项目想法 + 工作区简报 + 上游产物上下文 + 收集主题 + 用户预填内容
+    // 首条用户消息：项目想法 + 工作区简报（访谈版约定，不注入产物写入要求）+ 上游产物上下文 + 收集主题 + 用户预填内容
     let firstMessage = `## 项目\n\n- 名称：${project.name}\n- 一句话想法：${project.idea}`;
     const brief = await buildWorkspaceBrief(project, registry);
-    firstMessage += `\n\n${WORKSPACE_PREAMBLE}\n\n---\n\n${brief}`;
+    firstMessage += `\n\n${WORKSPACE_PREAMBLE_CONVERSATIONAL}\n\n---\n\n${brief}`;
     const contextBlocks = await buildContextBlocks(project, registry, {
       ...def,
       dependsOn: def.contextDeps ?? def.dependsOn,

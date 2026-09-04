@@ -30,17 +30,27 @@ interface ArtifactLocation {
   dir: string;
   /** 文件基名（stepId / prototype stepId） */
   base: string;
-  /** 扩展名（含点） */
+  /** 写入产物用的扩展名（含点） */
   ext: string;
+  /** 参与版本识别的全部扩展名（csv 步骤同时容纳 csv 与说明 md） */
+  exts: string[];
 }
 
 export function artifactLocation(projectId: string, stepKey: string, kind: OutputKind): ArtifactLocation {
   if (kind === 'html') {
     const stepId = stepKey.split(':')[1];
-    return { dir: prototypeDir(projectId), base: stepId, ext: '.html' };
+    return { dir: prototypeDir(projectId), base: stepId, ext: '.html', exts: ['.html'] };
   }
   const [agentId, stepId] = stepKey.split(':');
-  return { dir: stepArtifactDir(projectId, agentId), base: stepId, ext: '.md' };
+  if (kind === 'csv') {
+    return {
+      dir: stepArtifactDir(projectId, agentId),
+      base: stepId,
+      ext: '.csv',
+      exts: ['.csv', '.md'],
+    };
+  }
+  return { dir: stepArtifactDir(projectId, agentId), base: stepId, ext: '.md', exts: ['.md'] };
 }
 
 /** 版本文件名规范：<base>.<YYYYMMDD-HHMMSS-iii><ext> */
@@ -54,8 +64,9 @@ function legacyMainName(loc: ArtifactLocation): string {
 }
 
 function isVersionName(loc: ArtifactLocation, name: string): boolean {
+  const extAlt = loc.exts.map((e) => e.replace('.', '\\.')).join('|');
   return (
-    new RegExp(`^${loc.base}\\.\\d{8}-\\d{6}-\\d{3}${loc.ext}$`).test(name) ||
+    new RegExp(`^${loc.base}(-[A-Za-z0-9_-]+)?\\.\\d{8}-\\d{6}-\\d{3}(${extAlt})$`).test(name) ||
     name === legacyMainName(loc)
   );
 }
@@ -159,14 +170,61 @@ export async function normalizeArtifactName(
 ): Promise<string> {
   const loc = artifactLocation(projectId, stepKey, kind);
   const name = path.basename(absPath);
-  if (new RegExp(`^${loc.base}\\.\\d{8}-\\d{6}-\\d{3}${loc.ext}$`).test(name)) return absPath;
-  const target = path.join(loc.dir, versionFileName(loc.base, loc.ext));
+  const extAlt = loc.exts.map((e) => e.replace('.', '\\.')).join('|');
+  if (new RegExp(`^${loc.base}(-[A-Za-z0-9_-]+)?\\.\\d{8}-\\d{6}-\\d{3}(${extAlt})$`).test(name)) {
+    return absPath;
+  }
+  // 保留原扩展名（csv 步骤目录内说明 md 不应被改名为 csv）
+  const srcExt = path.extname(name);
+  const ext = loc.exts.includes(srcExt) ? srcExt : loc.ext;
+  const target = path.join(loc.dir, versionFileName(loc.base, ext));
   try {
     await fs.rename(absPath, target);
   } catch {
     return absPath; // rename 失败（跨目录等）就沿用原路径
   }
   return target;
+}
+
+/**
+ * 最新版本组：以最新一个版本文件为锚，返回与其同文件名时间戳、
+ * 或 mtime 相近（±5s，同一轮运行写出的 csv + 说明 md）的文件绝对路径列表。
+ */
+export async function latestVersionGroup(
+  projectId: string,
+  stepKey: string,
+  kind: OutputKind,
+): Promise<string[]> {
+  const files = await listStepFiles(projectId, stepKey, kind);
+  if (files.length === 0) return [];
+  const loc = artifactLocation(projectId, stepKey, kind);
+  const newest = files[0];
+  const stampMatch = newest.name.match(/\.(\d{8}-\d{6}-\d{3})\.[^.]+$/);
+  const stamp = stampMatch?.[1];
+  const anchor = new Date(newest.updatedAt).getTime();
+  const picked = files.filter((f) => {
+    if (stamp && f.name.includes(`.${stamp}.`)) return true;
+    return Math.abs(new Date(f.updatedAt).getTime() - anchor) <= 5_000;
+  });
+  return picked.map((f) => path.join(loc.dir, f.name));
+}
+
+/** 原地保存用户对某版本文件的编辑（应用内表格编辑器用）；返回新的更新时间 */
+export async function saveStepFile(
+  projectId: string,
+  stepKey: string,
+  kind: OutputKind,
+  fileName: string,
+  content: string,
+): Promise<{ updatedAt: string }> {
+  if (!validStepFileName(fileName)) throw new Error(`非法文件名: ${fileName}`);
+  const loc = artifactLocation(projectId, stepKey, kind);
+  const abs = path.join(loc.dir, fileName);
+  if (!isVersionName(loc, fileName) || !(await fileExists(abs))) {
+    throw new Error('文件不存在');
+  }
+  await atomicWriteFile(abs, content);
+  return { updatedAt: await artifactUpdatedAt(abs) };
 }
 
 /** 读取某 step 的指定版本文件内容（文件名已做白名单校验） */
