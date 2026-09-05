@@ -166,3 +166,12 @@ export function skillPluginPaths(names: string[] | undefined): string[] {
     .filter((n) => PKG_NAME_RE.test(n))
     .map((n) => path.join(SKILLS_DIR, n));
 }
+
+/** agent 级挂载 + 步骤级挂载合并（去重）→ SDK plugins 参数 */
+export function mergedSkillPluginPaths(
+  agentMounts: string[] | undefined,
+  stepSkills: string[] | undefined,
+): string[] {
+  const all = [...new Set([...(agentMounts ?? []), ...(stepSkills ?? [])])];
+  return skillPluginPaths(all);
+}

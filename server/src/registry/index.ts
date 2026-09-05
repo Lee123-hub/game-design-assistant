@@ -199,7 +199,7 @@ function playerSummaryStep(personas: PlayerPersona[]): StepDef {
 
 const AGENT_META: Record<AgentId, { title: string; description: string }> = {
   guide: {
-    title: '引导收集（阶段1 · 概念）',
+    title: '引导收集',
     description: '通过一问一答引导你完成概念阶段的信息收集（含竞品调研与分析），并汇总为一页纸概念案。',
   },
   prototype: {

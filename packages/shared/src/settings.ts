@@ -1,7 +1,7 @@
 export const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/anthropic';
 export const DEEPSEEK_MODELS = [
-  'deepseek-chat',
-  'deepseek-reasoner',
+  'deepseek-v4-flash',
+  'deepseek-v4-pro',
   'deepseek-v4-flash-vision-exp',
 ] as const;
 export type DeepSeekModel = (typeof DEEPSEEK_MODELS)[number];
@@ -55,6 +55,8 @@ export interface Settings {
   maxConcurrentRuns: number; // 默认 3
   /** 按 stepKey（"agentId:stepId"）粒度的步骤覆盖；玩家画像 step 不开放单独配置 */
   agentOverrides: Record<string, AgentOverride>;
+  /** agent 级技能挂载（agentId → 技能包名），对该 agent 全部步骤生效，与步骤级挂载合并 */
+  agentSkillMounts: Record<string, string[]>;
 }
 
 /** GET /api/settings 返回的脱敏视图 */
@@ -65,13 +67,15 @@ export interface SettingsView {
   maxConcurrentRuns: number;
   hasApiKey: boolean;
   agentOverrides: Settings['agentOverrides'];
+  agentSkillMounts: Settings['agentSkillMounts'];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   provider: 'deepseek',
   apiKey: '',
   baseUrl: DEEPSEEK_BASE_URL,
-  defaultModel: 'deepseek-chat',
+  defaultModel: 'deepseek-v4-flash',
   maxConcurrentRuns: 3,
   agentOverrides: {},
+  agentSkillMounts: {},
 };

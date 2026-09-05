@@ -10,7 +10,12 @@ export async function loadSettings(): Promise<Settings> {
   try {
     const raw = await fs.readFile(SETTINGS_FILE, 'utf8');
     const parsed = JSON.parse(raw) as Partial<Settings>;
-    cache = { ...DEFAULT_SETTINGS, ...parsed, agentOverrides: { ...parsed.agentOverrides } };
+    cache = {
+    ...DEFAULT_SETTINGS,
+    ...parsed,
+    agentOverrides: { ...parsed.agentOverrides },
+    agentSkillMounts: { ...parsed.agentSkillMounts },
+  };
   } catch {
     cache = { ...DEFAULT_SETTINGS };
   }
@@ -41,5 +46,6 @@ export function toSettingsView(s: Settings): SettingsView {
     maxConcurrentRuns: s.maxConcurrentRuns,
     hasApiKey: s.apiKey.length > 0,
     agentOverrides: s.agentOverrides,
+    agentSkillMounts: s.agentSkillMounts,
   };
 }

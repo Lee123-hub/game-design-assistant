@@ -22,6 +22,7 @@ const patchSchema = z.object({
       }),
     )
     .optional(),
+  agentSkillMounts: z.record(z.string(), z.array(z.string())).optional(),
 });
 
 export function settingsRouter(): Router {

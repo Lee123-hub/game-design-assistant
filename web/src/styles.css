@@ -11,7 +11,20 @@
   --warn: #f5a623;
   --err: #f2555a;
   --radius: 8px;
+  color-scheme: dark;
 }
+
+/* 浅色主题（外观设置里选「浅色」，或「系统」跟随系统浅色） */
+:root[data-mode='light'] {
+  --bg: #ffffff;
+  --bg-panel: #f6f7f9;
+  --bg-hover: #eceef2;
+  --border: #dfe3ea;
+  --text: #1a1c1f;
+  --text-dim: #697180;
+  color-scheme: light;
+}
+
 
 * {
   box-sizing: border-box;
@@ -873,4 +886,327 @@ select:focus {
 }
 .csv-hint {
   font-size: 12px;
+}
+
+
+/* 设置：全屏双栏（左侧导航 + 右侧完整配置区），参考 ChatGPT 设置交互 */
+.settings-mask {
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: fixed;
+  inset: 0;
+}
+.settings-shell {
+  position: relative;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: min(1060px, 94vw);
+  height: min(720px, 88vh);
+  display: flex;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+}
+.settings-nav {
+  width: 232px;
+  min-width: 232px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 14px 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-nav-title {
+  font-size: 15px;
+  font-weight: 600;
+  padding: 4px 10px 10px;
+}
+.settings-nav-group {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 12px 10px 4px;
+}
+.settings-nav-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  padding: 9px 10px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  /* 关键：禁止被 flex 压缩——展开内容超高时滚动（nav 已 overflow-y:auto），行距保持不变 */
+  flex-shrink: 0;
+}
+.settings-nav-item:hover {
+  background: var(--bg-hover);
+}
+.settings-nav-item.active {
+  background: var(--accent-dim);
+}
+.settings-nav-item .nav-ico {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  display: block;
+}
+.settings-nav-item.active .nav-ico {
+  color: var(--accent);
+}
+.settings-nav-item .dot {
+  color: var(--accent);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.settings-nav-item .chevron {
+  font-size: 10px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.settings-nav-item.sub {
+  padding-left: 24px;
+  font-weight: 600;
+}
+.settings-nav-item.sub2 {
+  padding-left: 40px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+/* 展开后保持与未展开一致的行距：agent 分组上下留白，二级项间距对齐一级项 */
+.settings-nav > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  flex-shrink: 0;
+}
+.settings-nav-item.sub2.active {
+  color: var(--text);
+}
+.settings-content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 22px 26px 28px;
+}
+.settings-content h3 {
+  margin: 0 0 14px;
+  font-size: 16px;
+}
+/* ---- ChatGPT 式内容布局：大标题 + 分节卡片 + 行式设置项 ---- */
+.settings-page-head {
+  margin-bottom: 22px;
+}
+.settings-page-head h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.settings-page-head p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.settings-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.settings-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px 18px;
+}
+.settings-row + .settings-row {
+  border-top: 1px solid var(--border);
+}
+.settings-row-text {
+  min-width: 0;
+}
+.settings-row-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+.settings-row-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+.settings-row-control {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+.settings-block {
+  padding: 14px 18px 16px;
+}
+.settings-block + .settings-block {
+  border-top: 1px solid var(--border);
+}
+.settings-block-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chip {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.chip.on {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.chip.locked {
+  opacity: 0.65;
+  cursor: default;
+}
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.link-btn:hover {
+  text-decoration: underline;
+}
+.settings-content textarea {
+  width: 100%;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+/* ---- 外观：主题模式预览卡 + 强调色色板 ---- */
+.theme-cards {
+  display: flex;
+  gap: 16px;
+  padding: 16px 18px;
+}
+.theme-card {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  width: 168px;
+}
+.theme-thumb {
+  position: relative;
+  height: 104px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 2px solid var(--border);
+  transition: border-color 0.12s;
+}
+.theme-card:hover .theme-thumb {
+  border-color: var(--text-dim);
+}
+.theme-card.active .theme-thumb {
+  border-color: var(--accent);
+}
+.theme-card-label {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.theme-card.active .theme-card-label {
+  color: var(--text);
+}
+.swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.35);
+}
+.swatch.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.swatch-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.swatch-custom input[type='color'] {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+.swatch-custom input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.swatch-custom input[type='color']::-webkit-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+.settings-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 2;
 }

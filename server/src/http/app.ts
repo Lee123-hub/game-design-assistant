@@ -32,10 +32,18 @@ export function createApp(): express.Express {
   const distDir = path.join(ROOT_DIR, 'web', 'dist');
   const indexHtml = path.join(distDir, 'index.html');
   if (fs.existsSync(indexHtml)) {
-    app.use(express.static(distDir));
+    app.use(
+      express.static(distDir, {
+        // html 每次协商缓存（保证新构建立即生效）；assets 带内容 hash 可长缓存
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+        },
+      }),
+    );
     // SPA fallback：非 /api 路径全部回 index.html
     app.use((req, res, next) => {
       if (req.path.startsWith('/api/')) return next();
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(indexHtml);
     });
   }

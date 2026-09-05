@@ -38,7 +38,7 @@ import {
   workspaceMaxTurns,
   workspaceToolSet,
 } from './workspace.js';
-import { skillPluginPaths } from '../store/skillStore.js';
+import { mergedSkillPluginPaths } from '../store/skillStore.js';
 import { getBus } from './eventBus.js';
 import {
   FIELD_SENTINEL,
@@ -234,7 +234,7 @@ async function executeGenerative(
         ? // 回答模式仍不给 Write/Edit：提问不应改动产物（此前的覆盖 bug）
           ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch']
         : workspaceToolSet(def, override),
-      plugins: questionMode ? [] : skillPluginPaths(override?.skills),
+      plugins: questionMode ? [] : mergedSkillPluginPaths(settings.agentSkillMounts[def.agentId], override?.skills),
       cwd: projectDir(project.id),
       handlers: {
         onDelta: (text) => {
@@ -544,7 +544,7 @@ async function executeConversational(
       abortController,
       maxTurns: workspaceMaxTurns(def, override),
       allowedTools: workspaceToolSet(def, override),
-      plugins: skillPluginPaths(override?.skills),
+      plugins: mergedSkillPluginPaths(settings.agentSkillMounts[def.agentId], override?.skills),
       cwd: projectDir(project.id),
       handlers: {
         onDelta: (text) => bus.publish({ type: 'delta', stepKey, runId, text }),
