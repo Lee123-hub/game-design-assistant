@@ -164,6 +164,15 @@ select:focus {
 .project-item.active {
   background: var(--accent-dim);
 }
+/* 项目列表区：自身滚动，新建/设置按钮固定 */
+.sidebar-section.project-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.project-search {
+  width: 100%;
+}
 .project-item .idea {
   color: var(--text-dim);
   font-size: 12px;

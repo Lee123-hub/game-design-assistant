@@ -25,6 +25,14 @@ export default function App() {
   const [newName, setNewName] = useState('');
   const [newIdea, setNewIdea] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // 项目列表按名称/想法过滤（不区分大小写）
+  const [search, setSearch] = useState('');
+  const q = search.trim().toLowerCase();
+  const visibleProjects = q
+    ? projects.filter(
+        (p) => p.name.toLowerCase().includes(q) || p.idea.toLowerCase().includes(q),
+      )
+    : projects;
 
   useEffect(() => {
     void loadProjects();
@@ -77,8 +85,16 @@ export default function App() {
             + 新建项目
           </button>
         </div>
-        <div className="sidebar-section" style={{ flex: 1 }}>
-          {projects.map((p) => (
+        <div className="sidebar-section">
+          <input
+            className="project-search"
+            value={search}
+            placeholder="搜索项目…"
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="sidebar-section project-list">
+          {visibleProjects.map((p) => (
             <div key={p.id} className="row spread" style={{ padding: '2px 0' }}>
               <button
                 className={`project-item ${p.id === currentId ? 'active' : ''}`}
@@ -104,9 +120,9 @@ export default function App() {
               </button>
             </div>
           ))}
-          {projects.length === 0 && (
+          {visibleProjects.length === 0 && (
             <div className="muted" style={{ padding: 8 }}>
-              还没有项目，点击上方按钮创建
+              {projects.length === 0 ? '还没有项目，点击上方按钮创建' : '没有匹配的项目'}
             </div>
           )}
         </div>
