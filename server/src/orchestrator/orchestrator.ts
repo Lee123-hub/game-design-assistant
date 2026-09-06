@@ -13,6 +13,7 @@ import { loadProject } from '../store/projectStore.js';
 import { readSession } from '../store/sessionStore.js';
 import {
   artifactLocation,
+  latestArtifactFile,
   listNewArtifactFiles,
   listStepFiles,
   normalizeArtifactName,
@@ -26,7 +27,7 @@ import { buildRegistry, findStepDef } from '../registry/index.js';
 import { loadSettings } from '../store/settingsStore.js';
 import { resolveModel, resolveSystemPrompt } from '../store/promptStore.js';
 import { runSemaphore } from './semaphore.js';
-import { buildContextBlocks, formatContext } from './contextBuilder.js';
+import { buildContextBlocks, buildSelfBlock, formatContext } from './contextBuilder.js';
 import {
   ANSWER_MARK,
   ANSWER_MODE_INSTRUCTION,
@@ -213,6 +214,11 @@ async function executeGenerative(
     const model = resolveModel(settings, stepKey);
     const override = settings.agentOverrides[stepKey];
     const blocks = questionMode ? [] : await buildContextBlocks(project, registry, def);
+    // 修改/重新生成场景：注入本步骤当前版本产物作为修改基准（与访谈步骤的旧小结注入同理）
+    if (!questionMode) {
+      const selfBlock = await buildSelfBlock(project, def, stepKey);
+      if (selfBlock) blocks.push(selfBlock);
+    }
     const brief = questionMode
       ? await buildWorkspaceBrief(project, registry)
       : await buildWorkspaceBrief(project, registry, def);
@@ -474,6 +480,11 @@ async function executeGenerative(
 // Conversational step（guide）
 // ---------------------------------------------------------------------------
 
+/** 上下文块截断（与 contextBuilder 单块上限一致） */
+function truncateForContext(text: string, limit = 12_000): string {
+  return text.length <= limit ? text : text.slice(0, limit) + `\n…（已截断，原文 ${text.length} 字符）`;
+}
+
 export async function runConversationalStep(
   project: Project,
   registry: AgentDef[],
@@ -531,8 +542,20 @@ async function executeConversational(
       ...def,
       dependsOn: def.contextDeps ?? def.dependsOn,
     });
+    // 修改/重开访谈场景：带上本步骤此前的访谈小结，避免已确认信息在重开时丢失
+    const prevFile = await latestArtifactFile(project.id, stepKey, def.outputKind);
+    if (prevFile) {
+      const prev = (await readArtifactAt(prevFile)) ?? '';
+      if (prev.trim()) {
+        contextBlocks.push({
+          label: `本步骤此前的访谈小结（用户本次要求重新访谈/修改，供参考，以本轮对话为准）`,
+          content: truncateForContext(prev),
+        });
+      }
+    }
     firstMessage += formatContext(contextBlocks);
-    firstMessage += `\n\n## 本次需要收集的主题\n\n${def.title}\n\n请开始第一个问题。`;
+    // 主题绑定：明确告知模型只负责本步骤，防止其根据文件清单自行"推进"到下一个未完成步骤
+    firstMessage += `\n\n## 本次访谈主题（你唯一的任务）\n\n**${def.title}**（${def.agentId}:${def.stepId}）。\n\n- 本次会话只围绕这个主题提问与收集，**不要替其他步骤执行任务或提问**——即使它们尚未完成、即使用户顺带提及相关内容，也只记录并说明稍后在对应步骤处理。\n- 工作区清单里显示其他步骤「尚未生成」或本步骤「done」，都与你无关：本步骤被重新发起，就只做本主题的事。\n- 用户消息是询问/咨询时按工作区约定的 \`[Q&A]\` 方式回答，不要切换访谈主题。\n\n请开始第一个问题。`;
     if (seedAnswers) firstMessage += `\n\n## 我预先说明\n\n${seedAnswers}`;
     queue.push(firstMessage);
 
