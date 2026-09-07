@@ -178,7 +178,7 @@ export function stepsRouter(): Router {
     const ctx = await resolve(req, res);
     if (!ctx) return;
     const stepKey = `${ctx.def.agentId}:${ctx.def.stepId}`;
-    const live = getGuideTurns(stepKey);
+    const live = getGuideTurns(ctx.project.id, stepKey);
     const raw = live.length > 0 ? live : await readSession(ctx.project.id, stepKey);
     // 完成哨兵是内部协议，不展示给用户
     const turns = raw.map((t) => ({ ...t, text: t.text.replaceAll(FIELD_SENTINEL, '') }));

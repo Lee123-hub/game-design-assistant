@@ -39,7 +39,7 @@ export async function handleProjectEvents(req: Request, res: Response): Promise<
   // snapshot：客户端用全量状态对齐（幂等覆盖本地）
   const guideTurns: Record<string, ReturnType<typeof getGuideTurns>> = {};
   for (const key of Object.keys(project.steps)) {
-    if (isGuideLive(key)) guideTurns[key] = getGuideTurns(key);
+    if (isGuideLive(projectId, key)) guideTurns[key] = getGuideTurns(projectId, key);
   }
   bus.publish({
     type: 'snapshot',

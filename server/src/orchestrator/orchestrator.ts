@@ -62,19 +62,23 @@ interface GuideLiveRun extends LiveRun {
   sessionId?: string;
 }
 
-const runs = new Map<string, LiveRun>(); // key: stepKey
-const guideSessions = new Map<string, GuideLiveRun>(); // key: stepKey
+const runs = new Map<string, LiveRun>(); // key: projectId::stepKey
+const guideSessions = new Map<string, GuideLiveRun>(); // key: projectId::stepKey
 
-export function getLiveRun(stepKey: string): LiveRun | undefined {
-  return runs.get(stepKey) ?? guideSessions.get(stepKey);
+/** 运行注册表的 key：按项目隔离，避免不同项目的同名 step 互相干扰/串显 */
+const liveKey = (projectId: string, stepKey: string): string => `${projectId}::${stepKey}`;
+
+export function getLiveRun(projectId: string, stepKey: string): LiveRun | undefined {
+  const key = liveKey(projectId, stepKey);
+  return runs.get(key) ?? guideSessions.get(key);
 }
 
-export function getGuideTurns(stepKey: string): GuideTurn[] {
-  return guideSessions.get(stepKey)?.turns ?? [];
+export function getGuideTurns(projectId: string, stepKey: string): GuideTurn[] {
+  return guideSessions.get(liveKey(projectId, stepKey))?.turns ?? [];
 }
 
-export function isGuideLive(stepKey: string): boolean {
-  return guideSessions.has(stepKey);
+export function isGuideLive(projectId: string, stepKey: string): boolean {
+  return guideSessions.has(liveKey(projectId, stepKey));
 }
 
 export function liveRunCount(): number {
@@ -97,7 +101,7 @@ function mapError(err: unknown): StepError {
 
 /** 终止某个 step 的当前运行：已流出的部分内容保留为产物，状态置为 canceled，等待用户「完成」确认 */
 export async function abortStep(projectId: string, stepKey: string): Promise<boolean> {
-  const live = getLiveRun(stepKey);
+  const live = getLiveRun(projectId, stepKey);
   if (!live) return false;
   live.abortController.abort();
   return true;
@@ -109,7 +113,7 @@ export async function abortStep(projectId: string, stepKey: string): Promise<boo
  * - 其余：若已有产物（如终止时落盘的部分产物）则保留，直接置 done
  */
 export async function completeStep(projectId: string, stepKey: string): Promise<boolean> {
-  if (getLiveRun(stepKey)) return false;
+  if (getLiveRun(projectId, stepKey)) return false;
   const project = await loadProject(projectId);
   const record = project?.steps[stepKey];
   if (!project || !record) return false;
@@ -153,7 +157,7 @@ export async function runGenerativeStep(
   seedAnswers?: string,
 ): Promise<{ runId: string; queued: boolean }> {
   const stepKey = def.agentId + ':' + def.stepId;
-  if (getLiveRun(stepKey)) throw new HttpConflict('该 step 正在运行中');
+  if (getLiveRun(project.id, stepKey)) throw new HttpConflict('该 step 正在运行中');
 
   const runId = newRunId();
   const queued = runSemaphore.active >= runSemaphore.limit;
@@ -172,7 +176,7 @@ async function executeGenerative(
   const release = await runSemaphore.acquire();
   const abortController = new AbortController();
   const live: LiveRun = { runId, stepKey, abortController, startedAt: new Date().toISOString() };
-  runs.set(stepKey, live);
+  runs.set(liveKey(project.id, stepKey), live);
   // 本次发起作为 session 中的一条用户消息
   await appendSession(project.id, stepKey, {
     role: 'user',
@@ -471,7 +475,7 @@ async function executeGenerative(
     }
   } finally {
     clearInterval(pollTimer);
-    runs.delete(stepKey);
+    runs.delete(liveKey(project.id, stepKey));
     release();
   }
 }
@@ -492,7 +496,7 @@ export async function runConversationalStep(
   seedAnswers?: string,
 ): Promise<{ runId: string; queued: boolean }> {
   const stepKey = def.agentId + ':' + def.stepId;
-  if (getLiveRun(stepKey)) throw new HttpConflict('该 step 正在运行中');
+  if (getLiveRun(project.id, stepKey)) throw new HttpConflict('该 step 正在运行中');
 
   const runId = newRunId();
   const queued = runSemaphore.active >= runSemaphore.limit;
@@ -519,7 +523,7 @@ async function executeConversational(
     queue,
     turns: [],
   };
-  guideSessions.set(stepKey, live);
+  guideSessions.set(liveKey(project.id, stepKey), live);
   // 新一轮访谈：重置该 step 的 session（预填内容作为首条用户消息）
   await writeSession(project.id, stepKey, seedAnswers ? [{ role: 'user', text: seedAnswers }] : []);
   const bus = getBus(project.id);
@@ -623,7 +627,7 @@ async function executeConversational(
       publishStepError(project.id, stepKey, runId, error.code, error.message);
     }
   } finally {
-    guideSessions.delete(stepKey);
+    guideSessions.delete(liveKey(project.id, stepKey));
     release();
   }
 }
@@ -675,7 +679,7 @@ export async function answerGuide(
   stepKey: string,
   text: string,
 ): Promise<void> {
-  const live = guideSessions.get(stepKey);
+  const live = guideSessions.get(liveKey(projectId, stepKey));
   if (!live) throw new HttpConflict('该 step 当前没有进行中的对话');
   if (live.abortController.signal.aborted) throw new HttpConflict('会话已中止');
   live.turns.push({ role: 'user', text });

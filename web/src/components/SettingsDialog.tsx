@@ -682,7 +682,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               <Section title="Agent 级技能挂载">
                 <Block
                   label="挂载技能包"
-                  desc="对该 Agent 下所有步骤生效，并与步骤级挂载自动合并"
+                  desc="对该 Agent 下所有步骤生效，并与步骤级挂载自动合并；保存后从下一次运行开始生效，进行中的对话不会加载新技能"
                 >
                   {chipGroup(activeAgentMounts, (next) =>
                     void saveAgentMounts(activeAgent.agentId, next),
@@ -775,7 +775,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 </Block>
                 <Block
                   label="外挂技能"
-                  desc="挂载后该步骤可在对话中使用这些技能"
+                  desc="挂载后该步骤可在对话中使用这些技能；保存后从下一次运行开始生效，进行中的对话不会加载新技能"
                 >
                   {stepAgentMounts.length > 0 && (
                     <div className="chip-group" style={{ marginBottom: 6 }}>
