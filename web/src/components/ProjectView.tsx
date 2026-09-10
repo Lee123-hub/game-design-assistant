@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { StepKey, StepMode, StepState } from '@gda/shared';
 import { useAppStore } from '../store/useAppStore.js';
 import { ArtifactViewer } from './ArtifactViewer.js';
+import { ModuleUiPanel } from './ModuleUiPanel.js';
 import { StepChat } from './StepChat.js';
 import { PlayersPanel } from './PlayersPanel.js';
 import { DeliverablesPanel } from './DeliverablesPanel.js';
@@ -212,7 +213,11 @@ export function ProjectView() {
               </span>
             </div>
             <div className="files-body">
-              <ArtifactViewer stepKey={stepKey} />
+              {stepDef.outputKind === 'html-modules' ? (
+                <ModuleUiPanel stepKey={stepKey} />
+              ) : (
+                <ArtifactViewer stepKey={stepKey} />
+              )}
             </div>
           </div>
         </div>

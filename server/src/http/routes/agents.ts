@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { AgentInfo, PlayerPersona, Settings } from '@gda/shared';
 import { PRESET_PERSONAS } from '@gda/shared';
 import { loadSettings } from '../../store/settingsStore.js';
-import { loadPromptTemplate, resolveModel } from '../../store/promptStore.js';
+import { loadPromptExtras, loadPromptTemplate, resolveModel } from '../../store/promptStore.js';
 import { buildRegistry } from '../../registry/index.js';
 
 /** 构建 Agent 信息列表（每个 step 携带自己的默认提示词与覆盖状态），agents 接口与项目详情共用 */
@@ -26,6 +26,8 @@ export async function buildAgentInfos(personas: PlayerPersona[], settings: Setti
         defaultTools: s.defaultTools ?? [],
         promptFile: s.promptFile,
         defaultPrompt: await loadPromptTemplate(s.promptFile),
+        promptExtras: s.promptExtras ?? [],
+        defaultPromptExtras: await loadPromptExtras(s.promptExtras ?? []),
         overridden: Boolean(settings.agentOverrides[stepKey]),
         model: resolveModel(settings, stepKey),
         configurable,

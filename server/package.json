@@ -11,6 +11,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "~0.3.259",
     "@gda/shared": "*",
+    "@openai/codex-sdk": "^0.154.0",
     "express": "~5.2.1",
     "zod": "~4.5.4"
   },

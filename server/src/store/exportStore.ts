@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import archiver from 'archiver';
 import type { OutputKind, PlayerPersona } from '@gda/shared';
+import { stripModuleUiVersion } from '@gda/shared';
 import { buildRegistry } from '../registry/index.js';
 import {
   latestArtifactFile,
@@ -49,6 +50,16 @@ export async function collectExportEntries(
         const group = await latestVersionGroup(projectId, stepKey, kind);
         for (const abs of group) {
           push(`steps/${def.agentId}/${stripStamp(path.basename(abs))}`, abs);
+        }
+        continue;
+      }
+
+      if (kind === 'html-modules') {
+        // 模块 UI 原型：每个模块只取最新版本，去掉版本号与时间戳
+        const group = await latestVersionGroup(projectId, stepKey, kind);
+        for (const abs of group) {
+          const base = path.basename(abs);
+          push(`prototypes/ui/${stripModuleUiVersion(base)}`, abs);
         }
         continue;
       }

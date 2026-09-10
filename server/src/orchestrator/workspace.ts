@@ -4,7 +4,9 @@ import type { AgentDef, Project, StepDef } from '@gda/shared';
 import {
   artifactLocation,
   listDeliverables,
+  listModuleUiEntries,
   listStepFiles,
+  latestModuleUiVersions,
 } from '../store/artifactStore.js';
 import { versionStamp } from '../store/artifactStore.js';
 import { projectDir } from '../store/paths.js';
@@ -56,6 +58,7 @@ const CLAUDE_MD_TEMPLATE = `# 项目文档说明
 - \`steps/<agentId>/<stepId>.<YYYYMMDD-HHMMSS-iii>.md\` — 各步骤产物版本文件，命名 = 名称+时间戳；**按创建时间倒序，最新一个即当前版本**，下游 step 的参考依据。
 - \`steps/<agentId>/<stepId>.md\` — 早期遗留的无时间戳版本（存在时同样参与按时间排序）。
 - \`prototypes/<stepId>.<YYYYMMDD-HHMMSS-iii>.html\` — HTML 可玩原型版本文件，命名规则同上。
+- \`prototypes/ui/<模块名>-v<N>-<YYYYMMDD-HHMMSS>.html\` — 模块 UI 原型（每个模块一个静态展示页面，同模块 v1/v2 递增，最新一个即当前版本）。由「模块 UI 原型」步骤生成，其他步骤不要读写。
 - \`deliverables/\` — 历史遗留交付文档（旧版本流程产出；现交付包为程序直接打包下载）。
 - \`runs/<runId>.jsonl\` — 每次运行的原始日志，由程序管理，禁止读写。
 - \`sessions/<agentId>__<stepId>.json\` — 每个步骤的访谈会话记录，由程序管理，禁止读写。
@@ -121,10 +124,10 @@ export function workspaceToolSet(def: StepDef, override?: { allowedTools?: strin
  * - agent 覆盖配置的 maxTurns 优先（用户在设置里配置）
  * - 默认 99（用户要求：默认轮数 99，等于基本不限制工具轮数）
  */
-export function workspaceMaxTurns(_def: StepDef, override?: { maxTurns?: number }): number {
+export function workspaceMaxTurns(def: StepDef, override?: { maxTurns?: number }): number {
   const custom = override?.maxTurns;
   if (custom && Number.isFinite(custom) && custom >= 1) return Math.floor(custom);
-  return 99;
+  return def.maxTurnsHint ?? 99;
 }
 
 /** 工作区约定公共部分（第 1~3 条，generative 与 conversational 共用） */
@@ -170,6 +173,19 @@ export async function buildDocManifest(
       const stepKey = `${agent.agentId}:${def.stepId}`;
       const record = project.steps[stepKey];
       const state = record?.state ?? 'pending';
+      if (def.outputKind === 'html-modules') {
+        const files = await listModuleUiEntries(project.id);
+        if (files.length === 0) {
+          lines.push(`- \`prototypes/ui/<模块名>-v<N>-<时间戳>.html\` — ${def.title}｜状态 ${state}｜尚未生成`);
+        } else {
+          for (const f of files) {
+            lines.push(
+              `- \`prototypes/ui/${f.name}\` — ${def.title}｜模块「${f.module || '未命名'}」v${f.version || '?'}｜状态 ${state}｜${formatTs(f.updatedAt)}`,
+            );
+          }
+        }
+        continue;
+      }
       const loc = artifactLocation(project.id, stepKey, def.outputKind);
       const rel =
         def.outputKind === 'html'
@@ -205,8 +221,43 @@ export async function buildDocManifest(
 }
 
 /** generative 步骤的产物写入要求：用 Write 工具把产物写到指定目录，文件名=名称+时间戳 */
-export function artifactWriteInstruction(def: StepDef): string {
+export function artifactWriteInstruction(
+  def: StepDef,
+  moduleUiVersions: Record<string, number> = {},
+): string {
   const now = versionStamp();
+  if (def.outputKind === 'html-modules') {
+    // 模块 UI 原型的文件名时间戳精确到秒（不带毫秒），直接给模型一个可照抄的值
+    const seconds = now.replace(/-\d{3}$/, '');
+    const existing = Object.entries(moduleUiVersions)
+      .sort((a, b) => a[0].localeCompare(b[0], 'zh-Hans-CN'))
+      .map(([name, v]) => `\`${name}\` 当前最新 v${v} → 本次写 v${v + 1}`)
+      .join('\n');
+    return [
+      '## 产物写入要求（必须执行）',
+      '',
+      '本步骤的最终产物是**每个模块各一个**静态展示 HTML 原型，必须用 Write 工具逐个写入：',
+      '',
+      '- 目录：`prototypes/ui/`（项目工作区内；不存在时直接写该路径，Write 会自动建目录）',
+      '- 文件名规范：`<模块名>-v<版本号>-<YYYYMMDD-HHMMSS>.html`',
+      '  - `<模块名>` **逐字取自模块设计文档**中「各模块详设」一节的模块标题文字（去掉 `#` 号，不要改写、不要翻译、不要加序号）',
+      '  - 标题里若有 `/ \\ : * ? " < > |` 这些文件名非法字符，替换成 `·`；**文件名里绝不能出现 `/`**',
+      '  - `<版本号>` = 该模块已有版本则递增（v1 → v2 → v3 …），首次为 v1',
+      '  - `<YYYYMMDD-HHMMSS>` = 本次写入时刻，**同一次运行写出的全部文件共用同一个时间戳**',
+      `- 当前时间参考：\`${seconds}\``,
+      '',
+      existing
+        ? `已有模块版本（据此决定本次版本号）：\n${existing}`
+        : '已有模块版本：暂无（本次全部为 v1）',
+      '',
+      '**范围约束（重要）**：',
+      '- 用户没有点名模块 → 为模块设计文档里的**每一个**模块写一个文件。',
+      '- 用户点名了某个模块 → **只写该模块的那一个文件**，其他模块的现有文件一个字都不要动（不要重写、不要删除、不要改文件名）。',
+      '- 每个文件都是完整的独立页面（`<!DOCTYPE html>` … `</html>`），页面之间不要互相引用。',
+      '',
+      '聊天回复里只写一句完成说明（写了哪些模块、各自版本号），不要把 HTML 代码贴进回复，也不要贴进其他文件。',
+    ].join('\n');
+  }
   if (def.outputKind === 'csv') {
     return [
       '## 产物写入要求（必须执行）',
@@ -285,7 +336,9 @@ export async function buildWorkspaceBrief(
     '```',
   ];
   if (def && def.mode === 'generative') {
-    sections.push('---', '', artifactWriteInstruction(def));
+    const versions =
+      def.outputKind === 'html-modules' ? await latestModuleUiVersions(project.id) : {};
+    sections.push('---', '', artifactWriteInstruction(def, versions));
   }
   return sections.join('\n');
 }

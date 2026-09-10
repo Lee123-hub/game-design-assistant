@@ -42,7 +42,9 @@ export interface StepRecord {
  * - markdown：单份 md 文档
  * - html：单文件可玩原型
  * - csv：1~N 份 csv 配置表 + 1 份说明 md（详细设计·配置表节点）
+ * - html-modules：每个模块一个静态展示 HTML（详细设计·模块 UI 原型节点），
+ *   存放于 prototypes/ui/，文件名 `<模块名>-v<N>-<YYYYMMDD-HHMMSS>.html`
  */
-export type OutputKind = 'markdown' | 'html' | 'csv';
+export type OutputKind = 'markdown' | 'html' | 'csv' | 'html-modules';
 
 export type StepMode = 'generative' | 'conversational';

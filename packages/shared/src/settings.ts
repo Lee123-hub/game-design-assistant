@@ -1,13 +1,18 @@
 export const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/anthropic';
-export const DEEPSEEK_MODELS = [
-  'deepseek-v4-flash',
-  'deepseek-v4-pro',
-  'deepseek-v4-flash-vision-exp',
-] as const;
-export type DeepSeekModel = (typeof DEEPSEEK_MODELS)[number];
 
-/** 提供方：deepseek=官方网关（baseUrl/模型固定枚举）；custom=自定义网关（自由输入） */
+/** DeepSeek OpenAI Responses 协议端点（Codex 引擎用；DeepSeek 官方为 Codex 专门提供） */
+export const DEEPSEEK_BASE_URL_OPENAI = 'https://api.deepseek.com';
+
+/** 提供方：deepseek=官方网关（baseUrl 固定）；custom=自定义网关 */
+
 export type ProviderKind = 'deepseek' | 'custom';
+
+/**
+ * 协议格式即引擎选择：
+ * - anthropic：claude-agent-sdk（Claude Code CLI 子进程），baseUrl 需为 Anthropic 兼容端点
+ * - openai-responses：@openai/codex-sdk（Codex CLI 子进程），baseUrl 需为 OpenAI Responses 兼容端点
+ */
+export type ProtocolKind = 'anthropic' | 'openai-responses';
 
 /** agent 可配置的全部工具（设置 UI 的候选清单） */
 export const AGENT_TOOL_OPTIONS = [
@@ -49,9 +54,12 @@ export interface SkillPackage {
 
 export interface Settings {
   provider: ProviderKind;
+  /** 协议格式（即引擎）：anthropic=claude-agent-sdk；openai-responses=Codex */
+  protocol: ProtocolKind;
   apiKey: string;
   baseUrl: string;
-  defaultModel: string; // deepseek 时为 DEEPSEEK_MODELS 之一，custom 时自由输入
+  /** 默认模型名，自由输入（两家网关都不再内置候选集合，模型名由用户按当前实际名称填写）；必填，保存时拒绝空值 */
+  defaultModel: string;
   maxConcurrentRuns: number; // 默认 3
   /** 按 stepKey（"agentId:stepId"）粒度的步骤覆盖；玩家画像 step 不开放单独配置 */
   agentOverrides: Record<string, AgentOverride>;
@@ -62,6 +70,7 @@ export interface Settings {
 /** GET /api/settings 返回的脱敏视图 */
 export interface SettingsView {
   provider: ProviderKind;
+  protocol: ProtocolKind;
   baseUrl: string;
   defaultModel: string;
   maxConcurrentRuns: number;
@@ -72,9 +81,11 @@ export interface SettingsView {
 
 export const DEFAULT_SETTINGS: Settings = {
   provider: 'deepseek',
+  protocol: 'anthropic',
   apiKey: '',
   baseUrl: DEEPSEEK_BASE_URL,
-  defaultModel: 'deepseek-v4-flash',
+  // 初始为空，用户必须填写（模型名由服务方随时变更，内置默认值会静默失效）；保存时空值被拒绝
+  defaultModel: '',
   maxConcurrentRuns: 3,
   agentOverrides: {},
   agentSkillMounts: {},

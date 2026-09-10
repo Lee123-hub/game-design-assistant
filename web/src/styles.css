@@ -423,6 +423,76 @@ select:focus {
   display: block;
 }
 
+/* 设置页：只读展示程序固定附加的约束文件正文 */
+.settings-readonly-pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+  background: var(--bg, #f6f7fb);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---- 模块 UI 原型面板（outputKind = html-modules）：按模块分组 ---- */
+.module-ui-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.module-ui-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+  background: var(--bg, #f6f7fb);
+}
+/* 模块行：两层布局。产物文件侧栏很窄（约 200px），单行塞不下
+   模块名 + 徽标 + 时间 + 三个按钮，会把模块名压成 0 宽而完全看不见 */
+.module-ui-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.module-ui-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.module-ui-name {
+  /* min-width:0 是关键：否则长模块名在窄侧栏里缩不成省略号，直接不可见 */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.module-ui-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.module-ui-time {
+  flex-shrink: 0;
+  margin-right: auto;
+  font-size: 11px;
+}
+/* 覆盖 .link-btn 的 8px 底部内边距（那是给详情页返回按钮留的） */
+.module-ui-actions .link-btn {
+  padding: 0;
+  font-size: 12px;
+}
+
 .file-detail-header {
   align-items: flex-start;
 }
@@ -1058,6 +1128,27 @@ select:focus {
   font-size: 14px;
   font-weight: 500;
   color: var(--text);
+}
+/* 行标签旁的「?」帮助徽标（hover/聚焦显示 title 原生提示） */
+.settings-row-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 6px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  cursor: help;
+  user-select: none;
+  vertical-align: 1px;
+}
+.settings-row-help:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
 }
 .settings-row-desc {
   font-size: 12px;

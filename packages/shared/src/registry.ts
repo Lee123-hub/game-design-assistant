@@ -16,8 +16,15 @@ export interface StepDef {
   useWebSearch?: boolean;
   /** prompts/ 下的内置默认提示词文件名 */
   promptFile: string;
+  /**
+   * 追加到系统提示词末尾的内置约束文件（prompts/ 下文件名）。
+   * 在 resolveSystemPrompt 内追加，因此用户覆盖提示词时同样生效。
+   */
+  promptExtras?: string[];
   /** 默认 maxTurns，generative 一般 1-2 */
   maxTurns: number;
+  /** 用户未配置 maxTurns 时使用的轮数上限；不写 = 99（基本不限制） */
+  maxTurnsHint?: number;
   /** step 的默认工具集（缺省 = DEFAULT_AGENT_TOOLS，不含 Agent） */
   defaultTools?: string[];
   /** 完成后同步复制到 deliverables/ 的文件名（已废弃，保留字段兼容旧 project.json） */
@@ -41,6 +48,8 @@ export const PROMPT_FILES = {
   guideOnePager: 'guide-one-pager.md',
   prototypeHtml: 'prototype-html.md',
   designModule: 'design-module.md',
+  moduleUi: 'module-ui.md',
+  uiConstraints: 'ui-design-constraints.md',
   designConfigTables: 'design-config-tables.md',
   numericEconomy: 'numeric-economy.md',
   numericProgression: 'numeric-progression.md',

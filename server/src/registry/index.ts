@@ -110,6 +110,25 @@ const DESIGN_STEPS: StepDef[] = [
   },
   {
     agentId: 'design',
+    stepId: 'module-ui',
+    title: '模块 UI 原型',
+    mode: 'generative',
+    outputKind: 'html-modules',
+    dependsOn: ['design:module-design'],
+    maxTurns: 4,
+    // 每个模块一个静态页面，不改玩法逻辑，不需要子 agent 复查
+    maxTurnsHint: 10,
+    promptFile: PROMPT_FILES.moduleUi,
+    // 桌面《AI 游戏 UI 设计约束》逐字内置，作为本步骤的硬性 UI 规范（用户覆盖提示词也依然生效）
+    promptExtras: [PROMPT_FILES.uiConstraints],
+    presetQueries: [
+      '为所有模块生成 UI 原型',
+      '整体信息层级更克制，正文文字再减少',
+      '信息不要压缩，改用分层/弹层展示',
+    ],
+  },
+  {
+    agentId: 'design',
     stepId: 'config-tables',
     title: '属性与数值配置表（CSV）',
     mode: 'generative',
@@ -208,7 +227,8 @@ const AGENT_META: Record<AgentId, { title: string; description: string }> = {
   },
   design: {
     title: '详细设计',
-    description: '模块详细设计（玩法逻辑/交互/音频音效等，子 agent 交叉检查）+ CSV 属性数值配置表。',
+    description:
+      '模块详细设计（玩法逻辑/交互/音频音效等，子 agent 交叉检查）+ 逐模块 UI 原型（静态展示 HTML）+ CSV 属性数值配置表。',
   },
   numeric: {
     title: '数值分析',

@@ -21,6 +21,7 @@ import {
   writeDeliverable,
   writeStepArtifact,
 } from '../store/artifactStore.js';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { relativeArtifactPath } from '../store/paths.js';
 import { buildRegistry, findStepDef } from '../registry/index.js';
@@ -87,6 +88,33 @@ export function liveRunCount(): number {
 
 function newRunId(): string {
   return `r-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+/**
+ * 多个模块 UI 原型文件中取「最新写入」的一个，用于填充 StepRecord.artifactPath。
+ * 依据是磁盘 mtime（而非文件名里的版本号：一次运行可能同时写多个模块，各自版本号不同）。
+ */
+async function newestModuleUiFile(
+  _projectId: string,
+  absPaths: string[],
+): Promise<string | null> {
+  if (absPaths.length === 0) return null;
+  let best: string | null = null;
+  let bestTime = -1;
+  for (const abs of absPaths) {
+    try {
+      const st = await fs.stat(abs);
+      if (st.mtimeMs > bestTime) {
+        bestTime = st.mtimeMs;
+        best = abs;
+      }
+    } catch {
+      // 文件已被删除/改名：跳过
+    }
+  }
+  if (best) return best;
+  // 全部 stat 失败（目录被清空等）：退回第一个
+  return absPaths[0] ?? null;
 }
 
 function mapError(err: unknown): StepError {
@@ -193,7 +221,8 @@ async function executeGenerative(
 
   // 运行前记录已有版本文件；运行期间轮询目标目录，检测 agent 用 Write 工具写入的新产物文件
   let knownFiles = new Set<string>();
-  let agentArtifact: string | null = null;
+  // 本次运行 agent 写出的产物文件（相对路径）。html-modules 会写出多个文件，其余步骤最多一个。
+  let agentArtifacts: string[] = [];
   let pollTimer: ReturnType<typeof setInterval> | undefined = undefined;
   if (!questionMode) {
     knownFiles = new Set(
@@ -201,12 +230,9 @@ async function executeGenerative(
     );
     pollTimer = setInterval(() => {
       void listNewArtifactFiles(project.id, stepKey, def.outputKind, knownFiles).then((fresh) => {
-        if (fresh.length > 0) {
-          agentArtifact = path.join(
-            artifactLocation(project.id, stepKey, def.outputKind).dir,
-            fresh[0],
-          );
-        }
+        const all = new Set(agentArtifacts);
+        for (const name of fresh) all.add(name);
+        agentArtifacts = [...all];
       });
     }, 1500);
   }
@@ -214,7 +240,7 @@ async function executeGenerative(
   try {
     await setStepState(project.id, stepKey, 'running', { runId, startedAt: live.startedAt, error: undefined });
     const settings = await loadSettings();
-    const systemPrompt = await resolveSystemPrompt(settings, stepKey, def.promptFile);
+    const systemPrompt = await resolveSystemPrompt(settings, stepKey, def);
     const model = resolveModel(settings, stepKey);
     const override = settings.agentOverrides[stepKey];
     const blocks = questionMode ? [] : await buildContextBlocks(project, registry, def);
@@ -278,15 +304,26 @@ async function executeGenerative(
     // 后处理产物：优先采用 agent 写入的文件，其次回退到从回复文本提取
     // 收尾前再做一次同步检测，避免轮询间隔内（agent 刚写完即结束）漏检
     const finalFresh = await listNewArtifactFiles(project.id, stepKey, def.outputKind, knownFiles);
-    if (finalFresh.length > 0) {
-      agentArtifact = path.join(artifactLocation(project.id, stepKey, def.outputKind).dir, finalFresh[0]);
+    {
+      const all = new Set(agentArtifacts);
+      for (const name of finalFresh) all.add(name);
+      agentArtifacts = [...all];
     }
     const finishedAt = new Date().toISOString();
     const finalText = result.finalText.trim();
     const priorArtifactPath = project.steps[stepKey]?.artifactPath;
-    const artifactAbs = agentArtifact
-      ? await normalizeArtifactName(project.id, stepKey, def.outputKind, agentArtifact)
-      : null;
+    // html-modules 会写出多个文件：全部归一化命名，artifactPath 取其中最新（mtime）的一个
+    const moduleUiMode = def.outputKind === 'html-modules';
+    const artifactAbsList: string[] = [];
+    for (const name of moduleUiMode ? agentArtifacts : agentArtifacts.slice(0, 1)) {
+      const abs = path.join(artifactLocation(project.id, stepKey, def.outputKind).dir, name);
+      artifactAbsList.push(
+        await normalizeArtifactName(project.id, stepKey, def.outputKind, abs),
+      );
+    }
+    const artifactAbs = moduleUiMode
+      ? await newestModuleUiFile(project.id, artifactAbsList)
+      : (artifactAbsList[0] ?? null);
     const markedAnswer = finalText.startsWith(ANSWER_MARK);
     const answerText = markedAnswer ? finalText.slice(ANSWER_MARK.length).trim() : '';
     let html: string | null = null;
@@ -301,12 +338,12 @@ async function executeGenerative(
     if (artifactAbs) {
       // A. agent 已用 Write 写入版本文件：直接采用，聊天回复保留一句说明
       const rel = relativeArtifactPath(artifactAbs, project.id);
+      const fallbackText = moduleUiMode
+        ? `✅ 已生成 ${artifactAbsList.length} 个模块 UI 原型（可在右侧按模块预览）`
+        : `✅ 产物已生成：${rel}（可在右侧产物文件面板中查看）`;
       await appendSession(project.id, stepKey, {
         role: 'assistant',
-        text:
-          finalText && !markedAnswer
-            ? finalText
-            : `✅ 产物已生成：${rel}（可在右侧产物文件面板中查看）`,
+        text: finalText && !markedAnswer ? finalText : fallbackText,
       });
       // assemble 步骤的产物同步进交付包（内容取 agent 写入的文件）
       if (def.deliverableFile) {
@@ -358,6 +395,12 @@ async function executeGenerative(
     } else if (def.outputKind === 'csv') {
       // D-csv：csv 步骤不允许正文兜底（会把说明文字写进 csv 文件），必须让 agent 写文件
       throw new Error('未在产物目录中找到本次写出的 CSV/说明文件，请按「产物写入要求」用 Write 工具写入后重试');
+    } else if (moduleUiMode) {
+      // D-modules：模块 UI 原型同样是「必须落文件」的形态（整页 HTML 落在聊天里毫无意义），
+      // 但仍允许纯问答（B 分支已先行处理）。
+      throw new Error(
+        '未在 prototypes/ui/ 中找到本次写出的模块 UI 原型文件，请按「产物写入要求」用 Write 工具写入后重试',
+      );
     } else {
       // D. markdown 兜底：agent 没有写文件（或检测竞态），把回复正文落盘为版本文件
       const text = finalText || '（模型未返回正文内容）';
@@ -420,6 +463,10 @@ async function executeGenerative(
             finishedAt,
             artifactPath: relativeArtifactPath(abs, project.id),
           });
+        } else if (def.outputKind === 'html-modules') {
+          // 模块 UI 原型：绝不把聊天文本落成 .html。已写出的模块文件已自动成为可见版本，
+          // 这里只把状态置为 canceled。
+          await setStepState(project.id, stepKey, 'canceled', { runId, finishedAt });
         } else if (def.outputKind !== 'html') {
           const abs = await writeStepArtifact(project.id, stepKey, streamedText, 'markdown');
           if (def.deliverableFile) {
@@ -444,16 +491,27 @@ async function executeGenerative(
         ? []
         : await listNewArtifactFiles(project.id, stepKey, def.outputKind, knownFiles);
       if (fresh.length > 0) {
-        const abs = await normalizeArtifactName(
-          project.id,
-          stepKey,
-          def.outputKind,
-          path.join(artifactLocation(project.id, stepKey, def.outputKind).dir, fresh[0]),
-        );
+        // 全部新文件都归一化命名（html-modules 一次可能写出多个模块），artifactPath 取最新一个
+        const multi = def.outputKind === 'html-modules';
+        const absList: string[] = [];
+        for (const name of multi ? fresh : fresh.slice(0, 1)) {
+          absList.push(
+            await normalizeArtifactName(
+              project.id,
+              stepKey,
+              def.outputKind,
+              path.join(artifactLocation(project.id, stepKey, def.outputKind).dir, name),
+            ),
+          );
+        }
+        const abs =
+          (multi ? await newestModuleUiFile(project.id, absList) : absList[0]) ?? absList[0]!;
         const rel = relativeArtifactPath(abs, project.id);
         await appendSession(project.id, stepKey, {
           role: 'assistant',
-          text: `✅ 产物已生成：${rel}（可在右侧产物文件面板中查看；本次运行因 ${error.message} 提前结束）`,
+          text: multi
+            ? `✅ 已生成 ${absList.length} 个模块 UI 原型（本次运行因 ${error.message} 提前结束，可能有模块未生成）`
+            : `✅ 产物已生成：${rel}（可在右侧产物文件面板中查看；本次运行因 ${error.message} 提前结束）`,
         });
         if (def.deliverableFile) {
           const content = (await readArtifactAt(abs)) ?? '';
@@ -534,7 +592,7 @@ async function executeConversational(
   try {
     await setStepState(project.id, stepKey, 'running', { runId, startedAt: live.startedAt, error: undefined });
     const settings = await loadSettings();
-    const systemPrompt = await resolveSystemPrompt(settings, stepKey, def.promptFile);
+    const systemPrompt = await resolveSystemPrompt(settings, stepKey, def);
     const model = resolveModel(settings, stepKey);
     const override = settings.agentOverrides[stepKey];
 

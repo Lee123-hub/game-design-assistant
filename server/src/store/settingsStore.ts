@@ -41,6 +41,7 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
 export function toSettingsView(s: Settings): SettingsView {
   return {
     provider: s.provider,
+    protocol: s.protocol,
     baseUrl: s.baseUrl,
     defaultModel: s.defaultModel,
     maxConcurrentRuns: s.maxConcurrentRuns,

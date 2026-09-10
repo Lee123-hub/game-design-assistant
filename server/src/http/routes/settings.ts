@@ -6,9 +6,16 @@ import { testProvider } from '../../sdk/client.js';
 
 const patchSchema = z.object({
   provider: z.enum(['deepseek', 'custom']).optional(),
+  // 协议格式即引擎：anthropic=claude-agent-sdk；openai-responses=Codex
+  protocol: z.enum(['anthropic', 'openai-responses']).optional(),
   apiKey: z.string().optional(),
   baseUrl: z.string().url().optional(),
-  defaultModel: z.string().trim().min(1).optional(),
+  // 模型名必填（不再预置候选，由用户按网关当前实际名称填写），拒绝保存空值
+  defaultModel: z
+    .string()
+    .trim()
+    .min(1, '模型名不能为空：请填写当前可用的模型名')
+    .optional(),
   maxConcurrentRuns: z.number().int().min(1).max(10).optional(),
   agentOverrides: z
     .record(

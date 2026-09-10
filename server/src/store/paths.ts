@@ -37,6 +37,11 @@ export function prototypeFile(projectId: string, stepId: string): string {
   return path.join(projectDir(projectId), 'prototypes', `${stepId}.html`);
 }
 
+/** prototypes/ui/ 目录（模块 UI 原型：每个模块一个 html 文件） */
+export function prototypeUiDir(projectId: string): string {
+  return path.join(projectDir(projectId), 'prototypes', 'ui');
+}
+
 export function deliverablesDir(projectId: string): string {
   return path.join(projectDir(projectId), 'deliverables');
 }

@@ -7,50 +7,19 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import type { Settings } from '@gda/shared';
 import { buildEnv, DISABLED_TOOLS } from './env.js';
+import { runCodexQuery } from './codexClient.js';
 
-export interface StreamHandlers {
-  /** 增量文本 */
-  onDelta?: (text: string) => void;
-  /** 思考增量（deepseek-reasoner，可能不存在） */
-  onThinking?: (text: string) => void;
-  /** 模型开始调用一个工具（UI 显示「正在使用xxx工具...」） */
-  onToolUse?: (tool: string) => void;
-  /** 一轮 assistant 回复完整结束（streaming-input 多轮会话用） */
-  onAssistantTurn?: (text: string, sessionId: string) => void;
-  /** 原始 SDK 消息（写入 run 日志） */
-  onRawMessage?: (msg: SDKMessage) => void;
-}
+import { QueryRunError, type QueryRunOptions, type QueryRunResult } from './engineTypes.js';
 
-export interface QueryRunOptions {
-  settings: Settings;
-  model: string;
-  systemPrompt: string;
-  prompt: string | AsyncIterable<SDKUserMessage>;
-  abortController: AbortController;
-  maxTurns: number;
-  /** 允许使用的联网/系统工具（如 ['WebSearch']）；默认全部禁用 */
-  allowedTools?: string[];
-  /** 工作目录（项目数据目录）。设置后启用文件工具并加装写保护 hook（只允许写 cwd 内的文件） */
-  cwd?: string;
-  /** 外挂技能插件目录（绝对路径）。传入后以 plugins 本地加载，skills:'all' 仅覆盖这些插件 */
-  plugins?: string[];
-  handlers?: StreamHandlers;
-}
-
-export interface QueryRunResult {
-  finalText: string;
-  sessionId: string;
-  costUsd: number;
-}
-
-export class QueryRunError extends Error {
-  constructor(
-    public code: 'aborted' | 'provider' | 'max_turns' | 'unknown',
-    message: string,
-  ) {
-    super(message);
-  }
-}
+// 引擎契约统一放在 engineTypes.ts（claude-agent-sdk / Codex 两个引擎共用）；
+// 这里原样 re-export，下游 `import { runQuery, QueryRunError } from './client.js'` 的路径保持不变
+export type {
+  StreamHandlers,
+  QueryRunOptions,
+  QueryRunResult,
+  EngineUserMessage,
+} from './engineTypes.js';
+export { QueryRunError } from './engineTypes.js';
 
 /** CLI 未认证时会以普通 assistant 消息输出这段文案，必须当成错误而不是回复 */
 const AUTH_FAILURE_RE = /not logged in|please run \/login|invalid api key|authentication/i;
@@ -79,8 +48,22 @@ function extractAssistantText(message: SDKMessage & { type: 'assistant' }): stri
  * - conversational：prompt 传 inputQueue（AsyncIterable），每轮 result 触发 onAssistantTurn
  */
 export async function runQuery(opts: QueryRunOptions): Promise<QueryRunResult> {
+  // 协议格式即引擎选择：openai-responses 走 Codex 引擎，其余（anthropic）走 Claude 引擎
+  if (opts.settings.protocol === 'openai-responses') {
+    return runCodexQuery(opts);
+  }
+
   const { settings, model, systemPrompt, prompt, abortController, maxTurns, handlers } = opts;
   const allowed = new Set(opts.allowedTools ?? []);
+
+  // 模型名由用户手填（不再预置候选），空值在这里拦成明确提示；
+  // 否则会以 model:'' 打到网关，报出难以定位的 provider 错误
+  if (!model.trim()) {
+    throw new QueryRunError(
+      'provider',
+      '尚未填写模型名：请在「设置 → 模型与运行」中填写当前可用的模型名后再运行',
+    );
+  }
 
   // cwd 模式（项目工作区）：写保护 hook——Write/Edit 只允许落在 cwd 内（产物文件 + CLAUDE.md）
   const hooks: { PreToolUse: HookCallbackMatcher[] } | undefined = opts.cwd
@@ -121,7 +104,8 @@ export async function runQuery(opts: QueryRunOptions): Promise<QueryRunResult> {
     : undefined;
 
   const iterator = query({
-    prompt,
+    // InputQueue 实际产出 SDKUserMessage；引擎契约用最小结构，这里收窄回 SDK 类型
+    prompt: prompt as string | AsyncIterable<SDKUserMessage>,
     options: {
       model,
       systemPrompt,

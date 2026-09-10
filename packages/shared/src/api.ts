@@ -1,6 +1,6 @@
 import type { OutputKind, StepKey, StepMode } from './step.js';
 import type { Project, ProjectSummary } from './project.js';
-import type { SettingsView, DeepSeekModel } from './settings.js';
+import type { SettingsView } from './settings.js';
 import type { AgentDef, StepDef } from './registry.js';
 
 // ---------- Settings ----------
@@ -13,6 +13,10 @@ export interface StepInfo
   defaultTools: string[];
   promptFile: string;
   defaultPrompt: string;
+  /** 程序固定追加到本步骤提示词末尾的约束文件名（覆盖提示词也不会移除） */
+  promptExtras: string[];
+  /** 上述约束文件的正文内容（设置页只读展示用） */
+  defaultPromptExtras: string[];
   overridden: boolean;
   model: string;
   /** 玩家画像 step 不开放单独配置 */
@@ -78,6 +82,6 @@ export interface AddPersonaBody {
 // ---------- re-exports for web convenience ----------
 
 export type { Project, ProjectSummary };
-export type { SettingsView, DeepSeekModel };
+export type { SettingsView };
 export type { AgentDef, StepDef };
 export type { StepKey, StepMode, OutputKind };

@@ -3,7 +3,8 @@ import {
   AGENT_TOOL_OPTIONS,
   DEFAULT_AGENT_TOOLS,
   DEEPSEEK_BASE_URL,
-  DEEPSEEK_MODELS,
+  DEEPSEEK_BASE_URL_OPENAI,
+  type ProtocolKind,
   type ProviderKind,
 } from '@gda/shared';
 import type { AgentInfo, StepInfo } from '@gda/shared';
@@ -19,6 +20,34 @@ import {
   type ThemeMode,
 } from '../theme.js';
 import { TrashIcon } from './icons.js';
+
+/**
+ * 各协议最近一次保存的自定义 Base URL（localStorage）。
+ * 两个 SDK 对 base_url 的约定不同（Anthropic 追加 /v1/messages；Codex 追加 /responses），
+ * 同一个输入框在协议间切换时按协议各自记忆/恢复，避免互相覆盖。
+ */
+const BASE_URL_MEMORY_KEY = 'gda.base-url-memory';
+
+function recallBaseUrl(protocol: ProtocolKind): string {
+  try {
+    const m = JSON.parse(localStorage.getItem(BASE_URL_MEMORY_KEY) ?? '{}') as Record<string, string>;
+    return m[protocol] ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function rememberBaseUrl(protocol: ProtocolKind, url: string): void {
+  const v = url.trim();
+  try {
+    const m = JSON.parse(localStorage.getItem(BASE_URL_MEMORY_KEY) ?? '{}') as Record<string, string>;
+    if (v) m[protocol] = v;
+    else delete m[protocol];
+    localStorage.setItem(BASE_URL_MEMORY_KEY, JSON.stringify(m));
+  } catch {
+    // localStorage 不可用（隐私模式等）时静默降级：仅失去跨协议记忆能力
+  }
+}
 
 /** 左侧导航的线性小图标（16px，currentColor 描边） */
 function Ico({ children }: { children: React.ReactNode }) {
@@ -96,7 +125,7 @@ function Row({
   desc,
   control,
 }: {
-  label: string;
+  label: React.ReactNode;
   desc?: string;
   control: React.ReactNode;
 }) {
@@ -220,12 +249,15 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
   const [selected, setSelected] = useState<SettingsSection>('general');
   const [provider, setProvider] = useState<ProviderKind>('deepseek');
+  // 协议格式即引擎：anthropic=claude-agent-sdk；openai-responses=Codex
+  const [protocol, setProtocol] = useState<ProtocolKind>('anthropic');
   const [apiKey, setApiKey] = useState('');
   const [keyVisible, setKeyVisible] = useState(false);
   const [realKey, setRealKey] = useState('');
   // 只保存自定义网关地址；deepseek 官方地址不占这个 state，切换提供方不会丢自定义值
   const [baseUrl, setBaseUrl] = useState('');
-  const [defaultModel, setDefaultModel] = useState('deepseek-v4-flash');
+  // 模型名不再内置候选，初始为空由用户填写
+  const [defaultModel, setDefaultModel] = useState('');
   const [maxRuns, setMaxRuns] = useState(3);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
@@ -249,8 +281,12 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     if (settings) {
+      const p = settings.protocol ?? 'anthropic';
       setProvider(settings.provider ?? 'deepseek');
+      setProtocol(p);
       setBaseUrl(settings.baseUrl !== DEEPSEEK_BASE_URL ? settings.baseUrl : '');
+      // 自定义网关下把盘上值记入当前协议的记忆，作为后续协议切换的恢复来源
+      if ((settings.provider ?? 'deepseek') === 'custom') rememberBaseUrl(p, settings.baseUrl);
       setDefaultModel(settings.defaultModel);
       setMaxRuns(settings.maxConcurrentRuns);
     }
@@ -261,6 +297,13 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   if (!settings) return null;
   const st = settings;
   const custom = provider === 'custom';
+  const codexEngine = protocol === 'openai-responses';
+  // DeepSeek 官方地址由协议推导（anthropic=/anthropic 端点；openai-responses=根端点）；自定义网关用用户输入
+  const effectiveBaseUrl = custom
+    ? baseUrl.trim() || DEEPSEEK_BASE_URL
+    : protocol === 'anthropic'
+      ? DEEPSEEK_BASE_URL
+      : DEEPSEEK_BASE_URL_OPENAI;
 
   // 可单独配置的 step 列表（玩家画像 step 不开放）；无覆盖时工具默认 = DEFAULT_AGENT_TOOLS
   const configurableSteps: StepInfo[] = registry.flatMap((a) => a.steps).filter((s) => s.configurable);
@@ -298,12 +341,18 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   }
 
   async function handleSave() {
+    if (!defaultModel.trim()) {
+      toast('error', '模型名不能为空：请填写当前可用的模型名后再保存');
+      return;
+    }
     setSaving(true);
     try {
+      if (custom) rememberBaseUrl(protocol, baseUrl);
       await saveSettings({
         provider,
+        protocol,
         ...(apiKey ? { apiKey } : {}),
-        baseUrl: custom ? baseUrl.trim() || DEEPSEEK_BASE_URL : DEEPSEEK_BASE_URL,
+        baseUrl: effectiveBaseUrl,
         defaultModel: defaultModel.trim(),
         maxConcurrentRuns: maxRuns,
       });
@@ -316,13 +365,19 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   }
 
   async function handleTest() {
+    if (!defaultModel.trim()) {
+      setTestResult('连接失败: 模型名不能为空：请先填写当前可用的模型名');
+      return;
+    }
     setTesting(true);
     setTestResult(null);
     try {
+      if (custom) rememberBaseUrl(protocol, baseUrl);
       await saveSettings({
         provider,
+        protocol,
         ...(apiKey ? { apiKey } : {}),
-        baseUrl: custom ? baseUrl.trim() || DEEPSEEK_BASE_URL : DEEPSEEK_BASE_URL,
+        baseUrl: effectiveBaseUrl,
         defaultModel: defaultModel.trim(),
         maxConcurrentRuns: maxRuns,
       });
@@ -512,6 +567,31 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                   }
                 />
                 <Row
+                  label="协议格式"
+                  desc={
+                    codexEngine
+                      ? 'OpenAI Responses 协议，使用 Codex 引擎（流式为整段消息到达）'
+                      : 'Anthropic 协议，使用 Claude Code 引擎'
+                  }
+                  control={
+                    <select
+                      value={protocol}
+                      onChange={(e) => {
+                        const next = e.target.value as ProtocolKind;
+                        // 自定义网关时按协议各自记忆/恢复 Base URL（两个 SDK 追加的路径不同，不能共用）
+                        if (custom) {
+                          rememberBaseUrl(protocol, baseUrl);
+                          setBaseUrl(recallBaseUrl(next));
+                        }
+                        setProtocol(next);
+                      }}
+                    >
+                      <option value="anthropic">Anthropic（Claude 协议）</option>
+                      <option value="openai-responses">OpenAI Responses（Codex 引擎）</option>
+                    </select>
+                  }
+                />
+                <Row
                   label="API Key"
                   desc={settings.hasApiKey ? '已保存；留空保存则保持不变' : '尚未设置'}
                   control={
@@ -543,14 +623,39 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                   }
                 />
                 <Row
-                  label="Base URL"
-                  desc={custom ? '兼容 Anthropic 协议的网关地址' : 'DeepSeek 官方固定，无需修改'}
+                  label={
+                    <>
+                      Base URL
+                      <span
+                        className="settings-row-help"
+                        tabIndex={0}
+                        title={
+                          '两种协议的 SDK 会在 Base URL 后自动追加各自的请求路径，请按网关暴露的前缀填写：\n' +
+                          '• Anthropic（Claude Code SDK）：追加 /v1/messages，例如填 https://gw.example.com/anthropic\n' +
+                          '• OpenAI Responses（Codex SDK）：追加 /responses，例如填 https://gw.example.com/v1'
+                        }
+                      >
+                        ?
+                      </span>
+                    </>
+                  }
+                  desc={
+                    custom
+                      ? codexEngine
+                        ? '兼容 OpenAI Responses 协议的网关地址'
+                        : '兼容 Anthropic 协议的网关地址'
+                      : 'DeepSeek 官方固定（随协议自动切换），无需修改'
+                  }
                   control={
                     <input
                       style={{ width: 260 }}
-                      value={custom ? baseUrl : DEEPSEEK_BASE_URL}
+                      value={custom ? baseUrl : effectiveBaseUrl}
                       disabled={!custom}
-                      placeholder="https://your-gateway.example.com/anthropic"
+                      placeholder={
+                        codexEngine
+                          ? 'https://your-gateway.example.com'
+                          : 'https://your-gateway.example.com/anthropic'
+                      }
                       onChange={(e) => setBaseUrl(e.target.value)}
                     />
                   }
@@ -559,30 +664,24 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               <Section title="模型与运行">
                 <Row
                   label="默认模型"
-                  desc={custom ? '按网关支持的模型名填写' : '所有步骤默认使用；可在各步骤中单独覆盖'}
+                  desc={
+                    custom
+                      ? '按网关支持的模型名填写；所有步骤默认使用，可在各步骤中单独覆盖'
+                      : '按 DeepSeek 当前的模型名填写（模型名会变更，故不预置候选）；所有步骤默认使用，可在各步骤中单独覆盖'
+                  }
                   control={
-                    custom ? (
-                      <input
-                        style={{ width: 260 }}
-                        value={defaultModel}
-                        placeholder="例如 claude-sonnet-5 / gpt-5"
-                        onChange={(e) => setDefaultModel(e.target.value)}
-                      />
-                    ) : (
-                      <select
-                        value={defaultModel}
-                        onChange={(e) => setDefaultModel(e.target.value)}
-                      >
-                        {DEEPSEEK_MODELS.map((m) => (
-                          <option key={m} value={m}>
-                            {m}
-                            {m === 'deepseek-v4-flash' ? '（默认，快）' : ''}
-                            {m === 'deepseek-v4-pro' ? '（更强，较贵）' : ''}
-                            {m === 'deepseek-v4-flash-vision-exp' ? '（视觉实验版）' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    )
+                    <input
+                      style={{ width: 260 }}
+                      value={defaultModel}
+                      placeholder={
+                        custom
+                          ? '例如 claude-sonnet-5 / gpt-5'
+                          : codexEngine
+                            ? '填写 DeepSeek 模型名（如 deepseek-flash）'
+                            : '填写 DeepSeek 模型名'
+                      }
+                      onChange={(e) => setDefaultModel(e.target.value)}
+                    />
                   }
                 />
                 <Row
@@ -682,7 +781,11 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               <Section title="Agent 级技能挂载">
                 <Block
                   label="挂载技能包"
-                  desc="对该 Agent 下所有步骤生效，并与步骤级挂载自动合并；保存后从下一次运行开始生效，进行中的对话不会加载新技能"
+                  desc={
+                    codexEngine
+                      ? '对该 Agent 下所有步骤生效，并与步骤级挂载自动合并。注意：当前协议为 OpenAI Responses（Codex 引擎），暂不支持技能包'
+                      : '对该 Agent 下所有步骤生效，并与步骤级挂载自动合并；保存后从下一次运行开始生效，进行中的对话不会加载新技能'
+                  }
                 >
                   {chipGroup(activeAgentMounts, (next) =>
                     void saveAgentMounts(activeAgent.agentId, next),
@@ -709,12 +812,18 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               <Section title="运行配置">
                 <Row
                   label="模型"
-                  desc={settings.defaultModel === editingModel ? '当前跟随全局默认模型' : '覆盖该步骤使用的模型'}
+                  desc={
+                    settings.defaultModel
+                      ? settings.defaultModel === editingModel
+                        ? '当前跟随全局默认模型'
+                        : '覆盖该步骤使用的模型'
+                      : '全局默认模型尚未填写，请先在「模型与运行」中填写'
+                  }
                   control={
                     <input
                       style={{ width: 240 }}
                       value={editingModel}
-                      placeholder={settings.defaultModel}
+                      placeholder={settings.defaultModel || '跟随全局默认'}
                       onChange={(e) => setEditingModel(e.target.value)}
                     />
                   }
@@ -775,7 +884,11 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 </Block>
                 <Block
                   label="外挂技能"
-                  desc="挂载后该步骤可在对话中使用这些技能；保存后从下一次运行开始生效，进行中的对话不会加载新技能"
+                  desc={
+                    codexEngine
+                      ? '挂载后该步骤可在对话中使用这些技能。注意：当前协议为 OpenAI Responses（Codex 引擎），暂不支持技能包'
+                      : '挂载后该步骤可在对话中使用这些技能；保存后从下一次运行开始生效，进行中的对话不会加载新技能'
+                  }
                 >
                   {stepAgentMounts.length > 0 && (
                     <div className="chip-group" style={{ marginBottom: 6 }}>
@@ -796,6 +909,18 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 >
                   <textarea rows={12} value={editingPrompt} onChange={(e) => setEditingPrompt(e.target.value)} />
                 </Block>
+                {active.promptExtras.length > 0 && (
+                  <Block
+                    label="固定附加约束（只读）"
+                    desc={`以下 ${active.promptExtras.join('、')} 由程序在本步骤提示词末尾固定附加，修改上方提示词不会移除它们。`}
+                  >
+                    {active.defaultPromptExtras.map((text, i) => (
+                      <pre key={active.promptExtras[i]} className="settings-readonly-pre">
+                        {text}
+                      </pre>
+                    ))}
+                  </Block>
+                )}
               </Section>
               <div className="settings-footer">
                 <button className="primary" onClick={() => saveStepOverride(active.stepKey)}>
