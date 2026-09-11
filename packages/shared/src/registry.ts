@@ -51,6 +51,8 @@ export const PROMPT_FILES = {
   moduleUi: 'module-ui.md',
   uiConstraints: 'ui-design-constraints.md',
   designConfigTables: 'design-config-tables.md',
+  numericInterview: 'numeric-interview.md',
+  numericSop: 'numeric-sop.md',
   numericEconomy: 'numeric-economy.md',
   numericProgression: 'numeric-progression.md',
   playerEval: 'player-eval.md',

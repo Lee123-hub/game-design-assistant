@@ -144,16 +144,34 @@ const DESIGN_STEPS: StepDef[] = [
   },
 ];
 
+/** 定性数值访谈：先收集目标体验/节奏/付费深度等口径，再进入定量计算（见 numeric-sop.md） */
+const NUMERIC_INTERVIEW: StepDef = {
+  agentId: 'numeric',
+  stepId: 'interview',
+  title: '数值定性访谈',
+  mode: 'conversational',
+  outputKind: 'markdown',
+  dependsOn: ['guide:one-pager'],
+  maxTurns: 8,
+  promptFile: PROMPT_FILES.numericInterview,
+  // 访谈要基于上游概念与模块设计提问，但不参与解锁门控（未完成的上游自动跳过）
+  contextDeps: ['guide:concept', 'guide:one-pager', 'design:module-design'],
+  presetQueries: ['开始数值访谈，逐项确认'],
+};
+
 const NUMERIC_STEPS: StepDef[] = [
+  NUMERIC_INTERVIEW,
   {
     agentId: 'numeric',
     stepId: 'economy',
     title: '经济系统数值模型',
     mode: 'generative',
     outputKind: 'markdown',
-    dependsOn: ['guide:one-pager', 'design:module-design', 'design:config-tables'],
+    dependsOn: ['numeric:interview', 'design:module-design', 'design:config-tables'],
     maxTurns: 2,
     promptFile: PROMPT_FILES.numericEconomy,
+    // 数值合理性 SOP 全文逐字内置：用户覆盖提示词也依然生效（追加在系统提示词末尾）
+    promptExtras: [PROMPT_FILES.numericSop],
     presetQueries: [
       '基于详细设计与配置表生成经济数值模型',
       '产出节奏更克制，拉长成长线',
@@ -166,9 +184,10 @@ const NUMERIC_STEPS: StepDef[] = [
     title: '养成与成长曲线',
     mode: 'generative',
     outputKind: 'markdown',
-    dependsOn: ['guide:one-pager', 'numeric:economy'],
+    dependsOn: ['numeric:interview', 'numeric:economy'],
     maxTurns: 2,
     promptFile: PROMPT_FILES.numericProgression,
+    promptExtras: [PROMPT_FILES.numericSop],
     presetQueries: [
       '生成养成与成长曲线',
       '以单局内成长为主，弱化局外养成',
@@ -232,7 +251,8 @@ const AGENT_META: Record<AgentId, { title: string; description: string }> = {
   },
   numeric: {
     title: '数值分析',
-    description: '基于详细设计与配置表设计经济产出/回收模型与养成曲线，保证数字自洽。',
+    description:
+      '先做定性访谈确认目标体验与节奏口径，再基于详细设计与配置表用脚本计算经济产出/回收模型与养成曲线，保证数字自洽。',
   },
   player: {
     title: '玩家评估',

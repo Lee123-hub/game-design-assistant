@@ -60,6 +60,7 @@ const CLAUDE_MD_TEMPLATE = `# 项目文档说明
 - \`prototypes/<stepId>.<YYYYMMDD-HHMMSS-iii>.html\` — HTML 可玩原型版本文件，命名规则同上。
 - \`prototypes/ui/<模块名>-v<N>-<YYYYMMDD-HHMMSS>.html\` — 模块 UI 原型（每个模块一个静态展示页面，同模块 v1/v2 递增，最新一个即当前版本）。由「模块 UI 原型」步骤生成，其他步骤不要读写。
 - \`deliverables/\` — 历史遗留交付文档（旧版本流程产出；现交付包为程序直接打包下载）。
+- \`scripts/\` — 数值计算脚本（node，工作文件，非产物）：由数值分析步骤写入并运行，文档数字必须与脚本输出一致。
 - \`runs/<runId>.jsonl\` — 每次运行的原始日志，由程序管理，禁止读写。
 - \`sessions/<agentId>__<stepId>.json\` — 每个步骤的访谈会话记录，由程序管理，禁止读写。
 - \`CLAUDE.md\` — 本文件。
