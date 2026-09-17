@@ -5,3 +5,4 @@ export * from './registry.js';
 export * from './moduleUi.js';
 export * from './sse.js';
 export * from './api.js';
+export * from './intent.js';

@@ -1,11 +1,15 @@
 import type {
   AgentDef,
   GuideTurn,
+  OutputKind,
   Project,
   StepDef,
   StepError,
+  StepRunStat,
 } from '@gda/shared';
 import { runQuery, QueryRunError } from '../sdk/client.js';
+import { stripSelfAnswer } from '../util/text.js';
+import { sumTokens, type ModelUsage } from '../sdk/usage.js';
 import { InputQueue } from '../sdk/inputQueue.js';
 import { appendRunLog } from '../store/runLog.js';
 import { appendSession, writeSession } from '../store/sessionStore.js';
@@ -48,6 +52,7 @@ import {
   guideTranscriptToMarkdown,
   publishStepError,
   setStepState,
+  patchStepRecord,
 } from './runner.js';
 
 export interface LiveRun {
@@ -88,6 +93,49 @@ export function liveRunCount(): number {
 
 function newRunId(): string {
   return `r-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+/**
+ * 重跑前把当前主产物复制一份到 .backups/<stepKey>/<时间戳>/。
+ * 生成类步骤动辄十几分钟，新一版跑砸时至少能取回上一版。
+ * 刻意放在 .backups 下而不是产物目录：不参与产物版本扫描，不会污染版本列表。
+ * @returns 相对项目目录的备份路径；无产物可备份时返回 undefined
+ */
+async function backupCurrentArtifact(
+  projectId: string,
+  stepKey: string,
+  kind: OutputKind,
+): Promise<string | undefined> {
+  try {
+    const latest = await latestArtifactFile(projectId, stepKey, kind);
+    if (!latest) return undefined;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const relDir = path.posix.join('.backups', stepKey.replace(':', '__'), stamp);
+    const destDir = path.join(projectDir(projectId), relDir);
+    await fs.mkdir(destDir, { recursive: true });
+    const dest = path.join(destDir, path.basename(latest));
+    await fs.copyFile(latest, dest);
+    return path.posix.join(relDir, path.basename(latest));
+  } catch {
+    // 备份失败不阻断主流程
+    return undefined;
+  }
+}
+
+/** 把一次运行的真实消耗打包成 StepRunStat */
+function toRunStat(
+  runId: string,
+  startedAt: string,
+  result: { usage?: { input: number; output: number; cacheRead: number } },
+): StepRunStat {
+  return {
+    runId,
+    durationMs: Math.max(0, Date.now() - new Date(startedAt).getTime()),
+    inputTokens: result.usage?.input ?? 0,
+    outputTokens: result.usage?.output ?? 0,
+    cacheReadTokens: result.usage?.cacheRead ?? 0,
+    finishedAt: new Date().toISOString(),
+  };
 }
 
 /**
@@ -225,6 +273,11 @@ async function executeGenerative(
   let agentArtifacts: string[] = [];
   let pollTimer: ReturnType<typeof setInterval> | undefined = undefined;
   if (!questionMode) {
+    // 重跑前先把当前主产物复制一份：生成类步骤动辄十几分钟，
+    // 若新一版跑砸了，至少能从这个备份取回上一版（不进产物扫描目录，不会污染版本列表）。
+    void backupCurrentArtifact(project.id, stepKey, def.outputKind).then((rel) => {
+      if (rel) void patchStepRecord(project.id, stepKey, { lastBackup: rel });
+    });
     knownFiles = new Set(
       (await listStepFiles(project.id, stepKey, def.outputKind)).map((f) => f.name),
     );
@@ -283,6 +336,11 @@ async function executeGenerative(
       },
     });
 
+    // 统计落库：先补到 StepRecord 上（后续各分支 setStepState('done') 用 Object.assign，
+    // extra 里不含 lastRun 就不会被覆盖），再随 step_done 事件推给前端。
+    const runStat = toRunStat(runId, live.startedAt, result);
+    await patchStepRecord(project.id, stepKey, { lastRun: runStat });
+
     if (questionMode) {
       // 回答模式：回答进 session，状态回 done，产物保持不变
       await appendSession(project.id, stepKey, {
@@ -297,7 +355,7 @@ async function executeGenerative(
           ? { artifactPath: project.steps[stepKey]!.artifactPath }
           : {}),
       });
-      bus.publish({ type: 'step_done', stepKey, runId, artifactPath: stepKey });
+      bus.publish({ type: 'step_done', stepKey, runId, artifactPath: stepKey, lastRun: runStat });
       return;
     }
 
@@ -425,6 +483,7 @@ async function executeGenerative(
       stepKey,
       runId,
       artifactPath: stepKey,
+      lastRun: runStat,
     });
   } catch (err) {
     const error = mapError(err);
@@ -587,7 +646,16 @@ async function executeConversational(
   const bus = getBus(project.id);
   bus.publish({ type: 'step_state', stepKey, state: 'running', runId });
 
+  // 重新访谈/修改前先把当前主产物复制一份：访谈小结同样可能十几分钟才产出，
+  // 新一版跑砸时至少能取回上一版（与生成类步骤一致，统一备份到 .backups）。
+  void backupCurrentArtifact(project.id, stepKey, def.outputKind).then((rel) => {
+    if (rel) void patchStepRecord(project.id, stepKey, { lastBackup: rel });
+  });
+
   let completed = false;
+  // 访谈是多轮会话，runQuery 只在队列 end 后返回；
+  // result 消息的 modelUsage 是累计值，这里逐轮记录，结束时用于统计。
+  let convUsage: ModelUsage = {};
 
   try {
     await setStepState(project.id, stepKey, 'running', { runId, startedAt: live.startedAt, error: undefined });
@@ -635,14 +703,18 @@ async function executeConversational(
         onDelta: (text) => bus.publish({ type: 'delta', stepKey, runId, text }),
         onThinking: (text) => bus.publish({ type: 'thinking', stepKey, runId, text }),
         onToolUse: (tool) => bus.publish({ type: 'tool_use', stepKey, runId, tool }),
-        onAssistantTurn: (turnText, sessionId) => {
+        onAssistantTurn: (rawTurnText, sessionId) => {
+          // 兜底清洗：模型偶尔会替用户写出「开发者答：……」，污染需求口径
+          const turnText = stripSelfAnswer(rawTurnText) || rawTurnText;
           live.turns.push({ role: 'assistant', text: turnText });
           live.sessionId = sessionId;
           void appendSession(project.id, stepKey, { role: 'assistant', text: turnText });
           if (turnText.includes(FIELD_SENTINEL)) {
             // 哨兵出现：本 step 收集完成
             completed = true;
-            void finishGuide(project, def, stepKey, runId, live, sessionId);
+            const stat = toRunStat(runId, live.startedAt, { usage: sumTokens(convUsage) });
+            void patchStepRecord(project.id, stepKey, { lastRun: stat });
+            void finishGuide(project, def, stepKey, runId, live, sessionId, stat);
           } else {
             // 进入等待用户回答
             void setStepState(project.id, stepKey, 'waiting_input', { runId, sessionId }).then(
@@ -652,7 +724,11 @@ async function executeConversational(
             );
           }
         },
-        onRawMessage: (msg) => void appendRunLog(project.id, runId, msg),
+        onRawMessage: (msg) => {
+          const m = msg as { type?: string; modelUsage?: ModelUsage };
+          if (m?.type === 'result' && m.modelUsage) convUsage = m.modelUsage;
+          void appendRunLog(project.id, runId, msg);
+        },
       },
     });
 
@@ -660,7 +736,9 @@ async function executeConversational(
     if (!completed) {
       if (live.turns.length > 0) {
         // 会话自然结束但未出现哨兵：把已有轮次落盘
-        await finishGuide(project, def, stepKey, runId, live, result.sessionId);
+        const stat = toRunStat(runId, live.startedAt, { usage: sumTokens(convUsage) });
+        await patchStepRecord(project.id, stepKey, { lastRun: stat });
+        await finishGuide(project, def, stepKey, runId, live, result.sessionId, stat);
       } else {
         throw new QueryRunError('provider', '对话会话未产生任何回复');
       }
@@ -698,8 +776,9 @@ async function finishGuide(
   runId: string,
   live: GuideLiveRun,
   sessionId: string,
+  lastRun?: StepRunStat,
 ): Promise<void> {
-  await finishGuideFromTurns(project.id, def.title, stepKey, runId, live.turns, sessionId);
+  await finishGuideFromTurns(project.id, def.title, stepKey, runId, live.turns, sessionId, lastRun);
   live.queue.end();
 }
 
@@ -711,6 +790,7 @@ async function finishGuideFromTurns(
   runId: string,
   turns: GuideTurn[],
   sessionId: string,
+  lastRun?: StepRunStat,
 ): Promise<void> {
   const lastTurn = turns[turns.length - 1];
   // 仅当最后一轮出现哨兵（模型给出总结）时才把该轮视为总结；提前完成时最后一轮是提问，整段作为 Q&A 落盘
@@ -727,8 +807,9 @@ async function finishGuideFromTurns(
     finishedAt,
     artifactPath: relativeArtifactPath(abs, projectId),
     sessionId,
+    ...(lastRun ? { lastRun } : {}),
   });
-  getBus(projectId).publish({ type: 'step_done', stepKey, runId, artifactPath: stepKey });
+  getBus(projectId).publish({ type: 'step_done', stepKey, runId, artifactPath: stepKey, lastRun });
 }
 
 /** 用户回答：向存活的会话投递消息 */

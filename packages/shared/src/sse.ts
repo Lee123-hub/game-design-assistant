@@ -24,7 +24,13 @@ export type ServerEvent =
       runId: string;
       question: string;
     }
-  | { type: 'step_done'; stepKey: StepKey; runId: string; artifactPath: string }
+  | {
+      type: 'step_done';
+      stepKey: StepKey;
+      runId: string;
+      artifactPath: string;
+      lastRun?: import('./step.js').StepRunStat;
+    }
   | { type: 'step_error'; stepKey: StepKey; runId: string; error: StepError }
   | { type: 'ping' };
 

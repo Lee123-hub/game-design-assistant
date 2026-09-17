@@ -1,8 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { StepKey } from '@gda/shared';
+import { looksLikeQuestion, type StepKey } from '@gda/shared';
 import { useAppStore } from '../store/useAppStore.js';
+
+/** 把毫秒读成人话：95_000 → 「1 分 35 秒」 */
+function humanDuration(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} 秒`;
+  const m = Math.floor(s / 60);
+  const rest = s % 60;
+  return rest === 0 ? `${m} 分` : `${m} 分 ${rest} 秒`;
+}
+
+/** 千分位：12345 → 12,345 */
+function fmtTokens(n: number): string {
+  return n.toLocaleString('zh-CN');
+}
 
 interface Props {
   stepKey: StepKey;
@@ -27,6 +41,7 @@ export function StepChat({ stepKey, conversational, presetQueries }: Props) {
   const runStep = useAppStore((s) => s.runStep);
   const abortStep = useAppStore((s) => s.abortStep);
   const completeStep = useAppStore((s) => s.completeStep);
+  const requestConfirm = useAppStore((s) => s.requestConfirm);
 
   const [draft, setDraft] = useState('');
   const chatRef = useRef<HTMLDivElement>(null);
@@ -65,6 +80,28 @@ export function StepChat({ stepKey, conversational, presetQueries }: Props) {
   const waitingAnswer = conversational && waiting;
   const idle = state === 'pending' || state === 'error' || state === 'canceled';
 
+  const hasArtifact = !!record?.artifactPath;
+
+  /**
+   * 重新生成代价很高（实测单步最长 15 分钟），且输入框回车、预置 chip 点击都会触发。
+   * 因此：本步已有产物 + 消息是生成/修改意图（不是提问）时，先确认再跑，
+   * 并把上次耗时直接写在弹窗里。
+   */
+  const confirmRerun = (text: string, onOk: () => void) => {
+    if (!hasArtifact || looksLikeQuestion(text)) {
+      onOk();
+      return;
+    }
+    const last = record?.lastRun;
+    const cost =
+      last && last.durationMs > 0 ? `上次耗时 ${humanDuration(last.durationMs)}` : '耗时可能较长';
+    requestConfirm(
+      `「${text.slice(0, 40)}${text.length > 40 ? '…' : ''}」会重新生成本步骤产物（${cost}），` +
+        `当前产物将被新版本取代（旧版本已自动备份）。确认继续？`,
+      onOk,
+    );
+  };
+
   const send = (raw: string) => {
     const text = raw.trim();
     if (!text || running) return;
@@ -74,10 +111,20 @@ export function StepChat({ stepKey, conversational, presetQueries }: Props) {
     } else {
       // pending/done/error/canceled：把消息作为本次发起的说明；
       // 本地先补一条用户消息（服务端 session 已记录，运行结束后重拉会覆盖）
-      useAppStore.setState((s) => ({
-        turns: { ...s.turns, [stepKey]: [...(s.turns[stepKey] ?? []), { role: 'user' as const, text }] },
-      }));
-      void runStep(stepKey, text);
+      const fire = () => {
+        useAppStore.setState((s) => ({
+          turns: {
+            ...s.turns,
+            [stepKey]: [...(s.turns[stepKey] ?? []), { role: 'user' as const, text }],
+          },
+        }));
+        void runStep(stepKey, text);
+      };
+      if (idle) {
+        fire();
+      } else {
+        confirmRerun(text, fire);
+      }
     }
   };
 
@@ -132,6 +179,15 @@ export function StepChat({ stepKey, conversational, presetQueries }: Props) {
           </div>
         )}
       </div>
+
+      {/* 上次运行消耗：慢步骤（实测最长 15 分钟）需要让人知道时间花在哪 */}
+      {!running && record?.lastRun && (
+        <div className="run-stat muted">
+          上次运行 {humanDuration(record.lastRun.durationMs)}
+          {' · '}输入 {fmtTokens(record.lastRun.inputTokens)} / 输出{' '}
+          {fmtTokens(record.lastRun.outputTokens)} token
+        </div>
+      )}
 
       {showPresets && (
         <div className="preset-row">

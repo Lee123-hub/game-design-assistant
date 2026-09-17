@@ -217,5 +217,5 @@ export async function runCodexQuery(opts: QueryRunOptions): Promise<QueryRunResu
   if (!sessionId) {
     throw new QueryRunError('provider', '会话未成功建立（未收到 thread.started）');
   }
-  return { finalText, sessionId, costUsd: 0 };
+  return { finalText, sessionId };
 }

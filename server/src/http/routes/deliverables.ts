@@ -13,7 +13,7 @@ export function deliverablesRouter(): Router {
       return;
     }
     try {
-      await streamProjectZip(res, project.id, project.personas, `${project.name}.zip`);
+      await streamProjectZip(res, project.id, project.personas, `${project.name}.zip`, project.name);
     } catch (err) {
       if (!res.headersSent) {
         res.status(500).json({ error: { code: 'zip_failed', message: String(err) } });

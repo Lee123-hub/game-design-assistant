@@ -243,7 +243,25 @@ export const useAppStore = create<AppState>((set, get) => ({
         set((s) => {
           const live = { ...s.live };
           delete live[event.stepKey];
-          return { live };
+          // 必须把结果合回 project.steps：step_state 事件不带 artifactPath，
+          // 而交付包面板 / 步骤列表徽标都读 project.steps[].artifactPath。
+          // 以前不合并 → 出现「17/17 已完成，却提示没有任何产物」的误报。
+          if (!s.project) return { live };
+          const prev = s.project.steps[event.stepKey];
+          const isDone = event.type === 'step_done';
+          const steps = { ...s.project.steps };
+          steps[event.stepKey] = {
+            ...prev,
+            stepKey: event.stepKey,
+            runId: event.runId ?? prev?.runId ?? null,
+            state: isDone ? 'done' : 'error',
+            finishedAt: isDone ? new Date().toISOString() : prev?.finishedAt,
+            ...(isDone && event.artifactPath ? { artifactPath: event.artifactPath } : {}),
+            ...(isDone ? { error: undefined } : { error: event.error }),
+            // 消耗统计：服务端随事件下发，避免前端还要再拉一次项目
+            ...(isDone && event.lastRun ? { lastRun: event.lastRun } : {}),
+          };
+          return { live, project: { ...s.project, steps } };
         });
         void get().loadSession(event.stepKey);
         break;
@@ -305,7 +323,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadSkills: async () => {
-    set({ skillPackages: await api.listSkills() });
+    // 失败时保留上一次的列表并明确报错：曾出现后端未就绪导致列表静默为空、
+    // 界面却显示「尚未上传技能包」，让人误以为技能包丢了
+    try {
+      set({ skillPackages: await api.listSkills() });
+    } catch (err) {
+      get().toast(
+        'error',
+        `技能包列表加载失败：${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   },
 
   uploadSkill: async (name, file) => {

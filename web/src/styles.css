@@ -520,6 +520,14 @@ select:focus {
   align-items: flex-end;
 }
 
+/* 上次运行的消耗统计（输入框上方一行小字） */
+.run-stat {
+  font-size: 12px;
+  flex-shrink: 0;
+  margin-bottom: 6px;
+  text-align: right;
+}
+
 /* 输入框上方预置 query */
 .preset-row {
   display: flex;
@@ -875,6 +883,63 @@ select:focus {
 }
 .fullscreen-exit:hover {
   opacity: 1;
+}
+
+/* 全屏预览内：左右方向键 / 悬浮按钮切换前后 html 原型 */
+.fullscreen-nav {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  opacity: 0.35;
+  transition: opacity 0.15s;
+}
+.prototype-wrap:fullscreen .fullscreen-nav {
+  position: fixed;
+}
+.fullscreen-nav:hover {
+  opacity: 1;
+}
+.fullscreen-nav .nav-btn {
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.fullscreen-nav .nav-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+.fullscreen-nav .nav-pos {
+  min-width: 42px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+/* 全屏预览切换文件时的加载态（不卸载容器，避免退出全屏） */
+.preview-loading {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 13px;
 }
 
 .muted {

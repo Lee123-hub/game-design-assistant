@@ -45,7 +45,8 @@ export interface QueryRunOptions {
 export interface QueryRunResult {
   finalText: string;
   sessionId: string;
-  costUsd: number;
+  /** 真实 token 消耗（自定义网关下唯一有意义的消耗口径） */
+  usage?: { input: number; output: number; cacheRead: number };
 }
 
 export class QueryRunError extends Error {

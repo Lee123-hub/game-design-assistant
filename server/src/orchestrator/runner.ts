@@ -31,6 +31,23 @@ export async function setStepState(
   });
 }
 
+/**
+ * 只补字段、不改状态、不发事件。
+ * 用于写入 lastRun（消耗统计）/ lastBackup（重跑前备份路径）这类附加信息，
+ * 避免在 running 与 done 之间来回切状态导致前端闪烁。
+ */
+export async function patchStepRecord(
+  projectId: string,
+  stepKey: string,
+  patch: Partial<StepRecord>,
+): Promise<void> {
+  await updateProject(projectId, (p) => {
+    const record = p.steps[stepKey];
+    if (!record) return;
+    Object.assign(record, patch);
+  });
+}
+
 export function publishStepError(
   projectId: string,
   stepKey: string,

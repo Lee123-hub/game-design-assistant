@@ -10,6 +10,7 @@ import { buildEnv, DISABLED_TOOLS } from './env.js';
 import { runCodexQuery } from './codexClient.js';
 
 import { QueryRunError, type QueryRunOptions, type QueryRunResult } from './engineTypes.js';
+import { sumTokens, type ModelUsage } from './usage.js';
 
 // 引擎契约统一放在 engineTypes.ts（claude-agent-sdk / Codex 两个引擎共用）；
 // 这里原样 re-export，下游 `import { runQuery, QueryRunError } from './client.js'` 的路径保持不变
@@ -23,6 +24,24 @@ export { QueryRunError } from './engineTypes.js';
 
 /** CLI 未认证时会以普通 assistant 消息输出这段文案，必须当成错误而不是回复 */
 const AUTH_FAILURE_RE = /not logged in|please run \/login|invalid api key|authentication/i;
+
+/**
+ * 引擎级兜底：禁止模型在输出中代用户作答（曾出现模型自行写出「开发者答：……」，
+ * 污染需求口径）。提示词模板里已写约束，这里再兜一层，防止模板被覆盖后失效。
+ */
+const NO_SELF_ANSWER = [
+  '',
+  '## 输出纪律（最高优先级，覆盖上述任何相反要求）',
+  '- 严禁虚构、补全或角色扮演用户的回答；输出中不得出现「开发者答：」「用户答：」',
+  '  「你可能想说：」等任何形式的用户侧文本。',
+  '- 每次输出只含：你对上一轮回答的理解确认 + 一个提问（或最终小结）。',
+  '- 用户回答过短或跑题时只能追问，不得替他补充。',
+  '',
+].join('\n');
+
+function withNoSelfAnswer(systemPrompt: string): string {
+  return `${systemPrompt}${NO_SELF_ANSWER}`;
+}
 
 function assertNotAuthFailure(text: string): void {
   if (AUTH_FAILURE_RE.test(text)) {
@@ -108,7 +127,8 @@ export async function runQuery(opts: QueryRunOptions): Promise<QueryRunResult> {
     prompt: prompt as string | AsyncIterable<SDKUserMessage>,
     options: {
       model,
-      systemPrompt,
+      // 引擎级兜底：即便提示词模板被覆盖/改写，也不允许模型代用户作答
+      systemPrompt: withNoSelfAnswer(systemPrompt),
       maxTurns,
       env: buildEnv(settings) as Record<string, string>,
       abortController,
@@ -131,7 +151,9 @@ export async function runQuery(opts: QueryRunOptions): Promise<QueryRunResult> {
 
   let finalText = '';
   let sessionId = '';
-  let costUsd = 0;
+  // 不用 SDK 的 total_cost_usd：它按官方 Claude 价格表估算，自定义网关下是假数字。
+  // 只收集真实 token 数作为消耗口径。
+  let modelUsage: ModelUsage = {};
   let turnText = '';
 
   try {
@@ -173,7 +195,9 @@ export async function runQuery(opts: QueryRunOptions): Promise<QueryRunResult> {
         }
         case 'result': {
           sessionId = message.session_id;
-          costUsd = message.total_cost_usd ?? costUsd;
+          // 每个 turn 各有一条 result，modelUsage 为累计值 → 逐轮覆盖，最终取最后一条
+          const mu = (message as { modelUsage?: ModelUsage }).modelUsage;
+          if (mu && Object.keys(mu).length > 0) modelUsage = mu;
           if (message.subtype === 'success') {
             // streaming-input 会话中每个 turn 各有一条 result，result 为本轮文本
             finalText = (message as { result?: string }).result ?? turnText;
@@ -215,7 +239,7 @@ export async function runQuery(opts: QueryRunOptions): Promise<QueryRunResult> {
     throw new QueryRunError('provider', '会话未成功建立（未收到 init）');
   }
   assertNotAuthFailure(finalText);
-  return { finalText, sessionId, costUsd };
+  return { finalText, sessionId, usage: sumTokens(modelUsage) };
 }
 
 /** 设置页连通性测试：一个极小查询 */

@@ -23,6 +23,17 @@ export interface StepError {
   message: string;
 }
 
+/** 最近一次运行的消耗统计（用于步骤卡片展示与成本核算） */
+export interface StepRunStat {
+  runId: string;
+  /** 端到端耗时（毫秒） */
+  durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  finishedAt: string;
+}
+
 export interface StepRecord {
   stepKey: StepKey;
   runId: string | null;
@@ -35,6 +46,10 @@ export interface StepRecord {
   /** 相对项目目录的产物路径 */
   artifactPath?: string;
   outputKind?: OutputKind;
+  /** 最近一次运行的 token/耗时/成本统计 */
+  lastRun?: StepRunStat;
+  /** 重跑前对上一版产物的备份路径（相对项目目录），出错时可人工取回 */
+  lastBackup?: string;
 }
 
 /**

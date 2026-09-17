@@ -67,6 +67,7 @@ export function ModuleUiPanel({ stepKey }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ name: string; content: ArtifactContent } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const previewWrapRef = useRef<HTMLDivElement>(null);
   const running = stepState === 'running';
@@ -108,14 +109,22 @@ export function ModuleUiPanel({ stepKey }: Props) {
   };
 
   // 预览某个版本文件（按需拉内容）
+  // 注意：切换文件时不先把 preview 置 null，否则全屏容器（prototype-wrap）会被卸载、
+  // 浏览器随之退出全屏，打断「全屏内方向键切换」。改为保留旧内容并显示加载态。
   const openPreview = (name: string) => {
     if (!currentId) return;
     setError(null);
-    setPreview(null);
+    setLoading(true);
     api
       .readStepFile(currentId, stepKey, name)
-      .then((a) => setPreview({ name, content: a }))
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+      .then((a) => {
+        setPreview({ name, content: a });
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : String(err));
+        setLoading(false);
+      });
   };
 
   const regen = (module: string) => {
@@ -141,6 +150,39 @@ export function ModuleUiPanel({ stepKey }: Props) {
 
   const groups = useMemo(() => groupByModule(files ?? []), [files]);
 
+  // 全屏预览时左右方向键切换用的「原型清单」（按界面展示顺序展平：组序 → 组内版本倒序）
+  const previewPlaylist = useMemo(() => {
+    const list: ModuleFile[] = [];
+    for (const g of groups) for (const f of g.files) list.push(f);
+    return list;
+  }, [groups]);
+  const previewIndex = preview ? previewPlaylist.findIndex((f) => f.name === preview.name) : -1;
+
+  // 全屏预览下，左右方向键 / 悬浮按钮在原型清单中前后切换（循环）
+  const goPreview = (dir: -1 | 1) => {
+    if (!preview || previewPlaylist.length === 0) return;
+    const n = previewPlaylist.length;
+    const cur = previewIndex === -1 ? 0 : previewIndex;
+    const next = (cur + dir + n) % n;
+    openPreview(previewPlaylist[next].name);
+  };
+
+  // 全屏 + 正在预览 html 时监听方向键
+  useEffect(() => {
+    if (!fullscreen || !preview) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goPreview(-1);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        goPreview(1);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen, preview, previewPlaylist, previewIndex, goPreview]);
+
   // ---- 预览态 ----
   if (preview) {
     return (
@@ -162,10 +204,34 @@ export function ModuleUiPanel({ stepKey }: Props) {
             sandbox="allow-scripts"
             srcDoc={preview.content.content}
           />
+          {loading && <div className="preview-loading">切换中…</div>}
           {fullscreen && (
-            <button className="fullscreen-exit" onClick={toggleFullscreen}>
-              ✕ 退出全屏
-            </button>
+            <>
+              <button className="fullscreen-exit" onClick={toggleFullscreen}>
+                ✕ 退出全屏
+              </button>
+              {previewPlaylist.length > 1 && (
+                <div className="fullscreen-nav">
+                  <button
+                    className="nav-btn"
+                    onClick={() => goPreview(-1)}
+                    title="上一个原型（←）"
+                  >
+                    ←
+                  </button>
+                  <span className="nav-pos">
+                    {previewIndex + 1} / {previewPlaylist.length}
+                  </span>
+                  <button
+                    className="nav-btn"
+                    onClick={() => goPreview(1)}
+                    title="下一个原型（→）"
+                  >
+                    →
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </>

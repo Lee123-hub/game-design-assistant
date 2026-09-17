@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ArtifactContent, StepFileInfo } from '@gda/shared';
@@ -28,6 +28,7 @@ export function ArtifactViewer({ stepKey }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [artifact, setArtifact] = useState<ArtifactContent | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const previewWrapRef = useRef<HTMLDivElement>(null);
 
@@ -68,23 +69,63 @@ export function ArtifactViewer({ stepKey }: Props) {
   };
 
   // 进入详情后按需拉取内容（列表页不请求）
+  // 注意：切换文件时不要先把 artifact 置 null，否则全屏容器（prototype-wrap）会被卸载、
+  // 浏览器随之退出全屏，导致「全屏内方向键切换」被打断。改为保留旧内容并显示加载态。
   useEffect(() => {
     if (!selected || !currentId) return;
     let cancelled = false;
-    setArtifact(null);
+    setLoading(true);
     setError(null);
     api
       .readStepFile(currentId, stepKey, selected)
       .then((a) => {
-        if (!cancelled) setArtifact(a);
+        if (!cancelled) {
+          setArtifact(a);
+          setLoading(false);
+        }
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+          setLoading(false);
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [selected, currentId, stepKey]);
+
+  // 全屏预览时方向键切换用的 html 清单（按文件列表顺序，仅含 .html/.htm）
+  const htmlFiles = useMemo(
+    () => (files ?? []).filter((f) => f.name.endsWith('.html') || f.name.endsWith('.htm')),
+    [files],
+  );
+  const isHtmlPreview = artifact?.outputKind === 'html';
+  const selectedIndex = selected ? htmlFiles.findIndex((f) => f.name === selected) : -1;
+
+  // 全屏 + 正在预览 html 时，左右方向键 / 悬浮按钮在 html 清单中前后切换（循环）
+  const goHtml = (dir: -1 | 1) => {
+    if (!isHtmlPreview || htmlFiles.length === 0 || !selected) return;
+    const n = htmlFiles.length;
+    const cur = selectedIndex === -1 ? 0 : selectedIndex;
+    const next = (cur + dir + n) % n;
+    setSelected(htmlFiles[next].name);
+  };
+
+  useEffect(() => {
+    if (!fullscreen || !isHtmlPreview) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goHtml(-1);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        goHtml(1);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen, isHtmlPreview, htmlFiles, selectedIndex, selected, goHtml]);
 
   const removeFile = (name: string) => {
     if (!currentId) return;
@@ -161,11 +202,35 @@ export function ArtifactViewer({ stepKey }: Props) {
       ) : artifact?.outputKind === 'html' ? (
         <div className="prototype-wrap" ref={previewWrapRef}>
           <iframe className="prototype-frame" sandbox="allow-scripts" srcDoc={artifact.content} />
+          {loading && <div className="preview-loading">切换中…</div>}
           {/* 全屏时顶部工具栏不可见，悬浮按钮提供退出入口 */}
           {fullscreen && (
-            <button className="fullscreen-exit" onClick={toggleFullscreen}>
-              ✕ 退出全屏
-            </button>
+            <>
+              <button className="fullscreen-exit" onClick={toggleFullscreen}>
+                ✕ 退出全屏
+              </button>
+              {htmlFiles.length > 1 && (
+                <div className="fullscreen-nav">
+                  <button
+                    className="nav-btn"
+                    onClick={() => goHtml(-1)}
+                    title="上一个原型（←）"
+                  >
+                    ←
+                  </button>
+                  <span className="nav-pos">
+                    {selectedIndex + 1} / {htmlFiles.length}
+                  </span>
+                  <button
+                    className="nav-btn"
+                    onClick={() => goHtml(1)}
+                    title="下一个原型（→）"
+                  >
+                    →
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       ) : artifact ? (
