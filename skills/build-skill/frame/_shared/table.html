@@ -1,0 +1,69 @@
+<!-- @shared table
+     通用表格片段: 拷贝到组件 template.html 里, 由组件动态渲染 <thead>/<tbody> 数据。
+     - .sc-table-wrap 提供滚动 + 圆角边框
+     - thead sticky top; tbody 斑马纹 + hover 高亮
+     - 可选 th.sortable 触发排序 UI (排序 JS 逻辑组件自实现)
+     全部 CSS 引用 scene-tokens.css 变量, 无 JS。
+-->
+<div class="sc-table-wrap">
+  <table class="sc-table">
+    <thead>
+      <tr>
+        <th>列 1</th>
+        <th class="sortable">列 2</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>a</td><td>b</td></tr>
+    </tbody>
+  </table>
+</div>
+<style>
+  .sc-table-wrap {
+    max-height: 400px;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--card);
+  }
+  .sc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .sc-table thead {
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 1;
+  }
+  .sc-table th {
+    padding: 8px 12px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--ink-dim);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .sc-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink);
+  }
+  .sc-table tbody tr:nth-child(even) { background: var(--bg); }
+  .sc-table tbody tr:hover { background: var(--brand-soft); }
+  .sc-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+  }
+  .sc-table th.sortable::after {
+    content: ' ▼';
+    opacity: 0.4;
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .sc-table th.sortable.asc::after { content: ' ▲'; opacity: 0.9; color: var(--brand); }
+  .sc-table th.sortable.desc::after { content: ' ▼'; opacity: 0.9; color: var(--brand); }
+</style>

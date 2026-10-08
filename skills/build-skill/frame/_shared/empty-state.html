@@ -1,0 +1,56 @@
+<!-- @shared empty-state
+     无数据 / 无结果占位: 居中 icon + 标题 + 描述 + 可选 CTA。
+     用法: 拷贝到组件里, 通过 hidden / style="display:none" 控制显隐。
+     全部 CSS 引用 scene-tokens.css 变量, 无 JS。
+-->
+<div class="sc-empty">
+  <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 4"/>
+    <path d="M18 24h12M24 18v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+  </svg>
+  <div class="sc-empty-title">暂无数据</div>
+  <div class="sc-empty-desc">试试调整筛选条件或稍后再试</div>
+  <button class="sc-empty-cta" type="button">刷新</button>
+</div>
+<style>
+  .sc-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px;
+    color: var(--ink-dim);
+    text-align: center;
+  }
+  .sc-empty svg {
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+  .sc-empty-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 4px;
+  }
+  .sc-empty-desc {
+    font-size: 12px;
+    color: var(--ink-dim);
+    margin-bottom: 16px;
+  }
+  .sc-empty-cta {
+    padding: 6px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--card);
+    color: var(--ink-dim);
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .sc-empty-cta:hover {
+    border-color: var(--brand);
+    color: var(--brand);
+    background: var(--brand-soft);
+  }
+</style>

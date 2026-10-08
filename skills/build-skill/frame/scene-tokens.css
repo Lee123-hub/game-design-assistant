@@ -1,0 +1,169 @@
+/* ============================================================
+ * scene-tokens.css — 场景组件统一 CSS Token + 骨架基础样式
+ *
+ * 由 compile.py 在编译时内联注入到每个组件 HTML 的 <style> 首位。
+ * 组件模板内：
+ *   - 禁止出现十六进制颜色字面量（一律引用 token）
+ *   - 禁止自行声明 :root 变量（由本文件统一定义）
+ *   - 禁止自行声明 * { box-sizing } / body font-family（由本文件统一定义）
+ * ============================================================ */
+
+/* ---- 设计 Token ---- */
+:root {
+  /* 品牌色 */
+  --brand: #2c5aff;
+  --brand-soft: #eaf0ff;
+  --brand-hover: #1e47e0;
+
+  /* 语义色 */
+  --ok: #19a974;
+  --ok-soft: #e6f7ef;
+  --ok-border: #bbf7d0;
+  --fail: #d14343;
+  --fail-soft: #fdecec;
+  --fail-border: #fecaca;
+  --warn: #d97706;
+  --warn-soft: #fef3e4;
+  --warn-border: #fde68a;
+
+  /* 墨色阶梯 */
+  --ink: #1d2230;
+  --ink-dim: #5b6476;
+  --muted: #8691a5;
+
+  /* 结构色 */
+  --line: #e6e8ef;
+  --bg: #f7f8fb;
+  --card: #ffffff;
+
+  /* 封存态 */
+  --seal-slate: #475569;
+  --seal-slate-soft: #f1f5f9;
+  --seal-slate-border: #cbd5e1;
+
+  /* 几何 */
+  --radius: 8px;
+  --radius-sm: 4px;
+  --shadow: 0 1px 3px rgba(15,23,42,.04), 0 4px 14px rgba(15,23,42,.04);
+
+  /* 字体 */
+  --font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+}
+
+/* ---- 全局重置（场景组件统一基线） ---- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--ink);
+  background: transparent;
+  line-height: 1.5;
+}
+
+/* ---- sc-frame 骨架（每个组件外层容器） ---- */
+.sc-frame {
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card);
+  overflow: hidden;
+  width: 100%;
+}
+
+/* ---- 统一顶部 bar ---- */
+.sc-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #f9fafb;
+  border-bottom: 1px solid var(--line);
+}
+.sc-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sc-topbar-icon { color: var(--ink-dim); display: flex; align-items: center; }
+.sc-topbar-title { font-size: 12px; font-weight: 600; color: #4b5563; }
+.sc-topbar-right { display: flex; align-items: center; gap: 8px; }
+
+/* ---- 统一底部 footer-nav（返回 + 下一步） ---- */
+.sc-footer-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #f9fafb;
+  border-top: 2px solid var(--line);
+}
+.sc-footer-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 返回按钮 */
+.btn-go-back {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 7px 16px;
+  font-size: 13px; font-weight: 500;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink-dim);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+.btn-go-back:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); }
+.btn-go-back:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* 下一步/确认按钮 */
+.btn-next {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 18px;
+  font-size: 13px; font-weight: 600;
+  border-radius: var(--radius);
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.btn-next.active { background: var(--brand); color: #fff; box-shadow: 0 1px 4px rgba(44,90,255,0.25); }
+.btn-next.active:hover { background: var(--brand-hover); }
+.btn-next.done { background: var(--ok-soft); color: var(--ok); border: 1px solid var(--ok-border); cursor: default; }
+.btn-next.disabled { background: #e5e7eb; color: var(--muted); cursor: not-allowed; }
+
+/* footer 提示文案 */
+.sc-footer-hint { font-size: 11px; color: var(--muted); }
+.sc-footer-hint.ready { color: var(--ok); }
+.sc-footer-hint.done { color: var(--ok); }
+
+/* ---- 通用 KPI 网格 ---- */
+.kpis { display: grid; gap: 10px; }
+.kpi { padding: 10px 14px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.k-label { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.k-value { font-size: 18px; font-weight: 700; color: var(--ink); }
+.k-mom { font-size: 11px; margin-top: 3px; }
+.arrow.up { color: var(--fail); }
+.arrow.down { color: var(--ok); }
+
+/* ---- 通用按钮变体 ---- */
+.btn-secondary {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px;
+  font-size: 12px; font-weight: 500;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: #fafafa;
+  color: var(--ink-dim);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.btn-secondary:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
+
+/* ---- 通用加载旋转动画 ---- */
+@keyframes sc-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.sc-spin { animation: sc-spin 1s linear infinite; display: inline-block; }

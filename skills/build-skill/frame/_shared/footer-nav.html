@@ -1,0 +1,110 @@
+<!-- @shared footer-nav
+     compile.py 在处理 "@include _shared/footer-nav.html" 指令时替换本文件内容。
+     组件在 JS 中调用 SceneFrame.FooterNav.render(config) 来控制按钮状态。
+
+     config = {
+       back:  { label:'← 返回上一步', show:true,  actionType:'go_back' }
+       next:  { label:'确认，进入下一步 →', show:true, actionType:'confirm_xxx', disabled:true }
+       hint:  '还有 2 项未就绪'
+     }
+-->
+<div class="sc-footer-nav" id="scFooterNav" style="display:none">
+  <button class="btn-go-back" id="scBtnBack" type="button" style="display:none">← 返回上一步</button>
+  <div class="sc-footer-nav-right">
+    <span class="sc-footer-hint" id="scFooterHint"></span>
+    <button class="btn-next disabled" id="scBtnNext" type="button" style="display:none" disabled></button>
+  </div>
+</div>
+<script>
+(function(){
+  // FooterNav 挂到 SceneFrame 上，供组件调用
+  if (!window.SceneFrame) window.SceneFrame = {};
+
+  var _navConfig = null;
+
+  window.SceneFrame.FooterNav = {
+    /**
+     * render(config) — 渲染/更新底部导航
+     *
+     * config.back  = { show?, label?, actionType?, disabled? }
+     * config.next  = { show?, label?, actionType?, state? }
+     *   state: 'active' | 'disabled' | 'done'
+     * config.hint  = string
+     * config.hintClass = 'ready' | 'done' | ''
+     */
+    render: function(config) {
+      _navConfig = config || {};
+      var nav = document.getElementById('scFooterNav');
+      var btnBack = document.getElementById('scBtnBack');
+      var btnNext = document.getElementById('scBtnNext');
+      var hintEl = document.getElementById('scFooterHint');
+
+      if (!nav) return;
+
+      // 只要有任一按钮需要显示，就显示 footer
+      var showNav = (config.back && config.back.show) || (config.next && config.next.show);
+      nav.style.display = showNav ? 'flex' : 'none';
+
+      // ── 返回按钮 ──
+      var backCfg = config.back || {};
+      if (btnBack) {
+        btnBack.style.display = backCfg.show ? '' : 'none';
+        btnBack.textContent = backCfg.label || '← 返回上一步';
+        btnBack.disabled = !!backCfg.disabled;
+        btnBack.onclick = function() {
+          if (btnBack.disabled) return;
+          btnBack.disabled = true;
+          btnBack.textContent = '返回中...';
+          var at = backCfg.actionType || 'go_back';
+          window.SceneFrame.callAction(at, {})
+            .catch(function(e) {
+              btnBack.disabled = false;
+              btnBack.textContent = backCfg.label || '← 返回上一步';
+              if (e.message !== 'sealed') window.SceneFrame.toast.error(e.message || '操作失败');
+            });
+        };
+      }
+
+      // ── 下一步按钮 ──
+      var nextCfg = config.next || {};
+      if (btnNext) {
+        btnNext.style.display = nextCfg.show ? '' : 'none';
+        var state = nextCfg.state || 'disabled'; // 'active' | 'disabled' | 'done'
+        btnNext.className = 'btn-next ' + state;
+        btnNext.disabled = (state !== 'active');
+        btnNext.textContent = nextCfg.label || '确认 →';
+        if (nextCfg.onNext) {
+          btnNext.onclick = nextCfg.onNext;
+        } else if (nextCfg.actionType && state === 'active') {
+          btnNext.onclick = function() {
+            if (btnNext.disabled) return;
+            btnNext.disabled = true;
+            btnNext.textContent = '提交中...';
+            var payload = nextCfg.payload || {};
+            window.SceneFrame.callAction(nextCfg.actionType, payload)
+              .then(function() {
+                window.SceneFrame.FooterNav.render(Object.assign({}, _navConfig, {
+                  next: Object.assign({}, nextCfg, { state: 'done', label: '✓ 已确认' })
+                }));
+              })
+              .catch(function(e) {
+                btnNext.disabled = false;
+                btnNext.textContent = nextCfg.label || '确认 →';
+                window.SceneFrame.FooterNav.render(Object.assign({}, _navConfig, {
+                  next: Object.assign({}, nextCfg, { state: 'active' })
+                }));
+                if (e.message !== 'sealed') window.SceneFrame.toast.error(e.message || '操作失败');
+              });
+          };
+        }
+      }
+
+      // ── 提示文案 ──
+      if (hintEl) {
+        hintEl.textContent = config.hint || '';
+        hintEl.className = 'sc-footer-hint' + (config.hintClass ? ' ' + config.hintClass : '');
+      }
+    }
+  };
+})();
+</script>

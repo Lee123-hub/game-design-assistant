@@ -1,0 +1,113 @@
+<!-- @shared modal
+     compile.py 在处理 "@include _shared/modal.html" 指令时替换本文件内容。
+     Modal 片段: 复制到组件 template.html <body> 末尾即可用。
+     API: window.SceneFrame.modal.{confirm, alert, prompt} (定义在 scene-frame.js)
+     也可直接操作 DOM 结构 (id=sc-modal-root).
+
+     注意: 若组件模板未 @include 本文件, scene-frame.js 会兜底动态注入极简版
+     (功能相同, 样式无 CSS token). 建议 include 以获得统一视觉.
+-->
+<div id="sc-modal-root" class="sc-modal-root" hidden>
+  <div class="sc-modal-mask"></div>
+  <div class="sc-modal-dialog" role="dialog" aria-modal="true">
+    <div class="sc-modal-header">
+      <span class="sc-modal-title">标题</span>
+      <button class="sc-modal-close" type="button" aria-label="关闭">&times;</button>
+    </div>
+    <div class="sc-modal-body">内容</div>
+    <div class="sc-modal-footer">
+      <button class="sc-modal-cancel btn-secondary" type="button">取消</button>
+      <button class="sc-modal-ok btn-next active" type="button">确认</button>
+    </div>
+  </div>
+</div>
+<style>
+  /* modal 片段专用样式, 复用 scene-tokens.css 变量 */
+  .sc-modal-root {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    font-family: var(--font);
+  }
+  .sc-modal-root[hidden] { display: none; }
+
+  .sc-modal-mask {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.42);
+    backdrop-filter: blur(1px);
+  }
+
+  .sc-modal-dialog {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow), 0 12px 40px rgba(15, 23, 42, 0.18);
+    min-width: 320px;
+    max-width: 90vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .sc-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    background: #f9fafb;
+  }
+  .sc-modal-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .sc-modal-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    line-height: 1;
+    color: var(--ink-dim);
+    cursor: pointer;
+    padding: 0 4px;
+    font-family: inherit;
+  }
+  .sc-modal-close:hover { color: var(--ink); }
+
+  .sc-modal-body {
+    padding: 16px;
+    overflow: auto;
+    font-size: 13px;
+    color: var(--ink);
+    flex: 1;
+  }
+
+  .sc-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+    background: #fafbfd;
+  }
+
+  /* prompt 内联 input 兜底样式 */
+  .sc-modal-body .sc-modal-input {
+    width: 100%;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--card);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .sc-modal-body .sc-modal-input:focus { border-color: var(--brand); }
+</style>

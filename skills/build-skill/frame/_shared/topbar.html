@@ -1,0 +1,28 @@
+<!-- @shared topbar
+     compile.py 在处理 "@include _shared/topbar.html" 指令时替换本文件内容。
+     参数由组件通过 SceneFrame.meta.stepLabel 在 JS 中动态填充。
+-->
+<div class="sc-topbar" id="scTopbar">
+  <div class="sc-topbar-left">
+    <div class="sc-topbar-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+        <polyline points="2 17 12 22 22 17"/>
+        <polyline points="2 12 12 17 22 12"/>
+      </svg>
+    </div>
+    <span class="sc-topbar-title" id="scTopbarTitle"></span>
+  </div>
+  <div class="sc-topbar-right" id="scTopbarRight"></div>
+</div>
+<script>
+(function(){
+  var titleEl = document.getElementById('scTopbarTitle');
+  if (titleEl) {
+    var label = (window.SceneFrame && window.SceneFrame.meta.stepLabel)
+      || (window.__COMPONENT_DATA__ && window.__COMPONENT_DATA__.meta && window.__COMPONENT_DATA__.meta.stepLabel)
+      || '';
+    titleEl.textContent = label;
+  }
+})();
+</script>

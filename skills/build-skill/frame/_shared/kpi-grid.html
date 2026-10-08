@@ -1,0 +1,29 @@
+<!-- @shared kpi-grid
+     KPI 数字看板: 3-6 列自适应网格。
+     核心 CSS (.kpis / .kpi / .k-label / .k-value / .k-mom / .arrow.up/down)
+     已在 frame/scene-tokens.css 定义, 本片段只补 grid-template-columns 自适应。
+     无 JS。
+-->
+<div class="kpis">
+  <div class="kpi">
+    <div class="k-label">指标A</div>
+    <div class="k-value">1,234</div>
+    <div class="k-mom"><span class="arrow up">▲</span> 12%</div>
+  </div>
+  <div class="kpi">
+    <div class="k-label">指标B</div>
+    <div class="k-value">567</div>
+    <div class="k-mom"><span class="arrow down">▼</span> -3%</div>
+  </div>
+  <div class="kpi">
+    <div class="k-label">指标C</div>
+    <div class="k-value">89.5%</div>
+    <div class="k-mom">--</div>
+  </div>
+</div>
+<style>
+  /* scene-tokens.css 里 .kpis 只声明了 display:grid + gap, 这里补自适应列宽 */
+  .kpis {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+</style>

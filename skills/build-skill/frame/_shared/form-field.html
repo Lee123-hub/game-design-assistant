@@ -1,0 +1,65 @@
+<!-- @shared form-field
+     compile.py 在处理 "@include _shared/form-field.html" 指令时替换本文件内容。
+     Form Field 片段: label + input + hint + error 一体化.
+     用法: 复制到组件内, 通过 JS toggle .has-error 类展示错误态.
+     支持 3 种变体: input / textarea / select.
+-->
+<div class="sc-field">
+  <label class="sc-field-label" for="my-input">
+    字段名 <span class="required">*</span>
+  </label>
+  <div class="sc-field-control">
+    <input id="my-input" class="sc-field-input" type="text" placeholder="请输入" />
+  </div>
+  <div class="sc-field-hint">建议 5-20 字符, 支持中英文</div>
+  <div class="sc-field-error" hidden>字段不能为空</div>
+</div>
+
+<!-- 变体: textarea -->
+<div class="sc-field">
+  <label class="sc-field-label" for="my-textarea">备注</label>
+  <div class="sc-field-control">
+    <textarea id="my-textarea" class="sc-field-input" rows="3" placeholder="选填"></textarea>
+  </div>
+</div>
+
+<!-- 变体: select -->
+<div class="sc-field">
+  <label class="sc-field-label" for="my-select">类型</label>
+  <div class="sc-field-control">
+    <select id="my-select" class="sc-field-input">
+      <option value="">请选择</option>
+      <option value="a">选项 A</option>
+      <option value="b">选项 B</option>
+    </select>
+  </div>
+</div>
+
+<style>
+  .sc-field { margin-bottom: 16px; }
+  .sc-field-label {
+    display: block; margin-bottom: 6px;
+    font-size: 13px; font-weight: 500; color: var(--ink);
+  }
+  .sc-field-label .required { color: var(--fail); margin-left: 2px; }
+  .sc-field-control { position: relative; }
+  .sc-field-input {
+    width: 100%; padding: 8px 10px; box-sizing: border-box;
+    border: 1px solid var(--line); border-radius: var(--radius-sm);
+    background: var(--card); font-family: inherit; font-size: 13px; color: var(--ink);
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .sc-field-input:focus {
+    outline: none; border-color: var(--brand);
+    box-shadow: 0 0 0 3px rgba(44, 90, 255, 0.15);
+  }
+  .sc-field-input::placeholder { color: var(--muted); }
+  textarea.sc-field-input { resize: vertical; min-height: 60px; }
+  select.sc-field-input { cursor: pointer; background-image: none; }
+  .sc-field-hint { margin-top: 4px; font-size: 11px; color: var(--ink-dim); }
+  .sc-field-error { margin-top: 4px; font-size: 11px; color: var(--fail); }
+  .sc-field.has-error .sc-field-input { border-color: var(--fail); }
+  .sc-field.has-error .sc-field-input:focus { box-shadow: 0 0 0 3px rgba(209, 67, 67, 0.15); }
+  .sc-field.has-error .sc-field-hint { display: none; }
+  .sc-field.has-error .sc-field-error { display: block !important; }
+</style>
